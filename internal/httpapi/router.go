@@ -19,6 +19,7 @@ import (
 	"github.com/soju06/codex-lb/internal/health"
 	"github.com/soju06/codex-lb/internal/models"
 	"github.com/soju06/codex-lb/internal/oauth"
+	"github.com/soju06/codex-lb/internal/proxy"
 	"github.com/soju06/codex-lb/internal/quotaplanner"
 	"github.com/soju06/codex-lb/internal/reports"
 	"github.com/soju06/codex-lb/internal/requestlogs"
@@ -59,9 +60,14 @@ func NewRouter(store *db.Store, logger *slog.Logger, cfg config.Config) http.Han
 	authHandler := auth.NewHandler(auth.NewRepository(store), sessionStore, cfg.AuthDisabled, encryptor)
 	oauthService := oauth.NewService(cfg, accountRepo, encryptor, accountHandler.InvalidateSummaryCache, logger)
 	oauthHandler := oauth.NewHandler(oauthService)
+	modelRegistry := proxy.NewModelRegistry(5 * time.Minute)
+	proxyModelsHandler := proxy.NewModelsHandler(apikeys.NewRepository(store), settings.NewRepository(store, encryptor), modelRegistry)
 
 	router.Get("/health/live", healthHandler.Live)
 	router.Get("/health/ready", healthHandler.Ready)
+
+	router.Get("/v1/models", proxyModelsHandler.V1Models)
+	router.Get("/backend-api/codex/models", proxyModelsHandler.CodexModels)
 	router.Group(func(r chi.Router) {
 		r.Use(sessionStore.LoadAndSave)
 		r.Get("/api/auth/session", authHandler.Session)
