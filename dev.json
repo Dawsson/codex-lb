@@ -1,0 +1,42 @@
+{
+  "$schema": "https://dev.dawson.gg/schemas/dev.v1.json",
+  "name": "codex-lb",
+  "slug": "clb",
+  "services": ["web", "api"],
+  "serviceAliases": {
+    "api": {
+      "url": ["API_PROXY_TARGET"]
+    }
+  },
+  "session": {
+    "name": "codex-lb",
+    "selectWindow": 0,
+    "windows": [
+      {
+        "name": "main",
+        "panes": [
+          {
+            "name": "api",
+            "command": "bun run dev:api",
+            "position": "main",
+            "services": ["api"]
+          },
+          {
+            "name": "web",
+            "command": "bun run dev:web",
+            "position": "right",
+            "services": ["web"]
+          }
+        ]
+      }
+    ]
+  },
+  "hooks": {
+    "beforeUp": [
+      {
+        "where": "workspace",
+        "command": "bun run install:all"
+      }
+    ]
+  }
+}

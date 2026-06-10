@@ -5,7 +5,8 @@
   "type": "module",
   "packageManager": "bun@1.3.14",
   "scripts": {
-    "dev": "vite",
+    "dev": "if [ -n \"$DEV_WORKSPACE\" ]; then bun run dev:local; else dev up --cwd ..; fi",
+    "dev:local": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
