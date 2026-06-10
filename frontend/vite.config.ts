@@ -7,6 +7,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vitest/config";
 
 const proxyTarget = process.env.API_PROXY_TARGET || "http://localhost:2455";
+const devWebHost = process.env.DEV_WEB_URL ? new URL(process.env.DEV_WEB_URL).hostname : undefined;
 const packageJson = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version?: string };
 const appVersion = packageJson.version ?? "0.0.0";
 const manualChunkPackages: Record<string, string[]> = {
@@ -41,6 +42,7 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: devWebHost ? [devWebHost] : undefined,
     proxy: {
       "/api": proxyTarget,
       "/v1": proxyTarget,
