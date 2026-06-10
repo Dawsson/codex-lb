@@ -160,7 +160,7 @@ export function ApiKeyInfo({
 								<div className="h-1.5 w-full rounded-full bg-muted">
 									<div
 										className={cn(
-											"h-full rounded-full transition-all",
+											"h-full rounded-full",
 											percent >= 90
 												? "bg-red-500"
 												: percent >= 70

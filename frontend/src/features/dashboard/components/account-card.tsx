@@ -53,7 +53,7 @@ function QuotaBar({
       </div>
       <div className={cn("h-1.5 w-full overflow-hidden rounded-full", quotaBarTrack(clamped))}>
         <div
-          className={cn("h-full rounded-full transition-all duration-500 ease-out", quotaBarColor(clamped))}
+          className={cn("h-full rounded-full", quotaBarColor(clamped))}
           style={{ width: `${clamped}%` }}
         />
       </div>
@@ -106,7 +106,7 @@ export function AccountCard({ account, showAccountId = false, onAction }: Accoun
     : "No attempts";
 
   return (
-    <div className="card-hover rounded-xl border bg-card p-4">
+    <div className="rounded-xl border bg-card p-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

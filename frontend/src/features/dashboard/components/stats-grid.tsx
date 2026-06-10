@@ -25,8 +25,7 @@ export function StatsGrid({ stats }: StatsGridProps) {
         return (
           <div
             key={stat.label}
-            className="animate-fade-in-up card-hover rounded-xl border bg-card p-4"
-            style={{ animationDelay: `${index * 75}ms` }}
+            className="rounded-xl border bg-card p-4"
           >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{stat.label}</span>

@@ -28,13 +28,13 @@ describe("AccountDetail", () => {
         onSetAlias={vi.fn().mockResolvedValue(undefined)}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
-        onExportAuth={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={onRoutingPolicyChange}
         onSecurityWorkAuthorizedChange={vi.fn()}
       />,
     );
 
+    await user.click(screen.getByRole("button", { name: "Account settings" }));
     await user.click(screen.getByRole("combobox", { name: "Routing policy" }));
     await user.click(await screen.findByRole("option", { name: "Preserve" }));
 

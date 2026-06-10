@@ -14,7 +14,6 @@ import type {
 import { normalizeStatus } from "@/utils/account-status";
 import { formatCompactAccountId } from "@/utils/account-identifiers";
 import {
-  formatDateTimeInline,
   formatPercentNullable,
   formatQuotaResetLabel,
   formatSlug,
@@ -36,15 +35,11 @@ export function AccountListItem({
   const blurred = usePrivacyStore((s) => s.blurred);
   const quotaDisplay = useAccountQuotaDisplayStore((s) => s.quotaDisplay);
   const status = normalizeStatus(account.status);
-  const title = account.displayName || account.email;
+  const title = account.alias?.trim() || account.displayName || account.email;
   const titleIsEmail = isEmailLabel(title, account.email);
-  const emailSubtitle = account.displayName && account.displayName !== account.email
-    ? account.email
-    : null;
-  const workspaceLabel = account.workspaceLabel || account.workspaceId || "Personal / unknown workspace";
-  const seatLabel = account.seatType ? ` | ${formatSlug(account.seatType)}` : "";
-  const slotSubtitle = `${formatSlug(account.planType)} | ${workspaceLabel}${seatLabel}`;
-  const idSuffix = showAccountId ? ` | ID ${formatCompactAccountId(account.accountId)}` : "";
+  const emailSubtitle =
+    account.displayName && account.displayName !== account.email ? account.email : null;
+  const metaSubtitle = buildAccountMetaSubtitle(account, showAccountId);
   const primary = account.usage?.primaryRemainingPercent ?? null;
   const secondary = account.usage?.secondaryRemainingPercent ?? null;
   const monthly = account.usage?.monthlyRemainingPercent ?? null;
@@ -68,80 +63,120 @@ export function AccountListItem({
     !monthlyOnly && hasSecondaryWindow && (quotaDisplay !== "5h" || !hasPrimaryWindow);
   const visibleQuotaRows = Number(showPrimaryRow) + Number(showSecondaryRow) + Number(showMonthlyRow);
   const showRoutingPolicy = status !== "reauth" && status !== "deactivated";
-  const warmupLabel = account.limitWarmupEnabled ? "Warm-up on" : "Warm-up off";
-  const warmupMeta = account.limitWarmup
-    ? `${formatSlug(account.limitWarmup.status)} | ${formatSlug(account.limitWarmup.model)} | ${formatDateTimeInline(account.limitWarmup.completedAt ?? account.limitWarmup.attemptedAt)}`
-    : "No attempts";
+  const routingPolicy = account.routingPolicy as AccountRoutingPolicy | undefined;
+  const showRoutingIndicator =
+    showRoutingPolicy && routingPolicy != null && routingPolicy !== "normal";
+  const showCyberIndicator = account.securityWorkAuthorized === true;
 
   return (
     <button
       type="button"
       onClick={() => onSelect(account.accountId)}
       className={cn(
-        "w-full rounded-lg px-3 py-2.5 text-left transition-colors",
-        selected ? "bg-primary/8 ring-1 ring-primary/25" : "hover:bg-muted/50",
+        "w-full rounded-lg border px-3 py-2.5 text-left transition-all",
+        selected
+          ? "border-primary/35 bg-primary/6 shadow-sm ring-1 ring-primary/15"
+          : "border-border/50 bg-background hover:border-border hover:bg-muted/35",
       )}
     >
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">
-            {titleIsEmail && blurred ? (
-              <span className="privacy-blur">{title}</span>
-            ) : (
-              title
-            )}
-          </p>
-          <p className="truncate text-xs text-muted-foreground" title={showAccountId ? `Account ID ${account.accountId}` : undefined}>
-            {emailSubtitle ? <><span className={blurred ? "privacy-blur" : undefined}>{emailSubtitle}</span> | {slotSubtitle}{idSuffix}</> : <>{slotSubtitle}{idSuffix}</>}
-          </p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="truncate text-sm font-semibold leading-tight">
+              {titleIsEmail && blurred ? (
+                <span className="privacy-blur">{title}</span>
+              ) : (
+                title
+              )}
+            </p>
+            <StatusBadge status={status} />
+          </div>
+          {emailSubtitle || metaSubtitle ? (
+            <p
+              className="mt-0.5 truncate text-[11px] text-muted-foreground"
+              title={showAccountId ? `Account ID ${account.accountId}` : undefined}
+            >
+              {emailSubtitle ? (
+                <>
+                  <span className={blurred ? "privacy-blur" : undefined}>{emailSubtitle}</span>
+                  {metaSubtitle ? ` · ${metaSubtitle}` : null}
+                </>
+              ) : (
+                metaSubtitle
+              )}
+            </p>
+          ) : null}
         </div>
-        {showRoutingPolicy ? (
-          <RoutingPolicyBadge
-            policy={account.routingPolicy as AccountRoutingPolicy | undefined}
-          />
-        ) : null}
-        {account.securityWorkAuthorized === true ? (
-          <ShieldCheck
-            className="h-3.5 w-3.5 text-emerald-600"
-            aria-label="Trusted Access for Cyber"
-          />
-        ) : null}
-        <StatusBadge status={status} />
       </div>
-      <div
-        className={cn(
-          "mt-2 grid gap-2",
-          visibleQuotaRows > 1 ? "grid-cols-2" : "grid-cols-1",
-        )}
-      >
-        {showMonthlyRow ? (
-          <MiniQuotaRow
-            label="Monthly"
-            percent={monthly}
-            resetAt={account.resetAtMonthly}
-          />
-        ) : null}
-        {showPrimaryRow ? (
-          <MiniQuotaRow
-            label="5h"
-            percent={primary}
-            resetAt={account.resetAtPrimary}
-          />
-        ) : null}
-        {showSecondaryRow ? (
-          <MiniQuotaRow
-            label="Weekly"
-            percent={secondary}
-            resetAt={account.resetAtSecondary}
-          />
-        ) : null}
-      </div>
-      <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-        <span>{warmupLabel}</span>
-        <span className="truncate">{warmupMeta}</span>
-      </div>
+
+      {visibleQuotaRows > 0 ? (
+        <div
+          className={cn(
+            "mt-2.5 grid gap-2",
+            visibleQuotaRows > 1 ? "grid-cols-2" : "grid-cols-1",
+          )}
+        >
+          {showMonthlyRow ? (
+            <MiniQuotaRow
+              label="Monthly"
+              percent={monthly}
+              resetAt={account.resetAtMonthly}
+            />
+          ) : null}
+          {showPrimaryRow ? (
+            <MiniQuotaRow
+              label="5h"
+              percent={primary}
+              resetAt={account.resetAtPrimary}
+            />
+          ) : null}
+          {showSecondaryRow ? (
+            <MiniQuotaRow
+              label="Weekly"
+              percent={secondary}
+              resetAt={account.resetAtSecondary}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {showRoutingIndicator || showCyberIndicator ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          {showRoutingIndicator ? (
+            <RoutingPolicyBadge policy={routingPolicy} />
+          ) : null}
+          {showCyberIndicator ? (
+            <span
+              className="inline-flex h-5 items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 text-[10px] font-medium text-emerald-700"
+              title="Trusted Access for Cyber"
+            >
+              <ShieldCheck className="h-3 w-3" aria-hidden />
+              Cyber
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </button>
   );
+}
+
+function buildAccountMetaSubtitle(account: AccountSummary, showAccountId: boolean): string {
+  const parts: string[] = [formatSlug(account.planType)];
+
+  const workspaceLabel = account.workspaceLabel || account.workspaceId;
+  if (workspaceLabel) {
+    parts.push(workspaceLabel);
+  }
+
+  if (account.seatType) {
+    parts.push(formatSlug(account.seatType));
+  }
+
+  if (showAccountId) {
+    parts.push(`ID ${formatCompactAccountId(account.accountId)}`);
+  }
+
+  return parts.join(" · ");
 }
 
 function RoutingPolicyBadge({
@@ -153,7 +188,7 @@ function RoutingPolicyBadge({
     return (
       <Badge
         variant="outline"
-        className="shrink-0 gap-1 border-amber-300 bg-amber-50 px-1.5 text-[11px] text-amber-700"
+        className="h-5 shrink-0 gap-1 border-amber-300/80 bg-amber-50 px-1.5 text-[10px] text-amber-700"
       >
         <Flame className="h-3 w-3" aria-hidden="true" />
         Burn first
@@ -164,21 +199,14 @@ function RoutingPolicyBadge({
     return (
       <Badge
         variant="outline"
-        className="shrink-0 gap-1 border-sky-300 bg-sky-50 px-1.5 text-[11px] text-sky-700"
+        className="h-5 shrink-0 gap-1 border-sky-300/80 bg-sky-50 px-1.5 text-[10px] text-sky-700"
       >
         <Shield className="h-3 w-3" aria-hidden="true" />
         Preserve
       </Badge>
     );
   }
-  return (
-    <Badge
-      variant="outline"
-      className="shrink-0 px-1.5 text-[11px] text-muted-foreground"
-    >
-      Normal
-    </Badge>
-  );
+  return null;
 }
 
 function MiniQuotaRow({
@@ -190,11 +218,13 @@ function MiniQuotaRow({
   percent: number | null;
   resetAt: string | null | undefined;
 }) {
+  const resetLabel = formatMiniQuotaResetLabel(resetAt ?? null);
+
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-[11px]">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="tabular-nums font-medium">
+      <div className="flex items-center justify-between gap-2 text-[11px] leading-none">
+        <span className="font-medium text-foreground/80">{label}</span>
+        <span className="shrink-0 tabular-nums font-semibold">
           {formatPercentNullable(percent)}
         </span>
       </div>
@@ -203,9 +233,7 @@ function MiniQuotaRow({
         percent={percent}
         testId={`mini-quota-track-${label.toLowerCase()}`}
       />
-      <div className="text-[10px] text-muted-foreground">
-        {formatMiniQuotaResetLabel(resetAt ?? null)}
-      </div>
+      <div className="truncate text-[10px] text-muted-foreground/80">{resetLabel}</div>
     </div>
   );
 }

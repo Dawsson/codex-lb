@@ -71,7 +71,7 @@ export const AccountSummarySchema = z.object({
   workspaceLabel: z.string().nullable().optional(),
   seatType: z.string().nullable().optional(),
   planType: z.string(),
-  routingPolicy: z.enum(["normal", "burn_first", "preserve"]).optional(),
+  routingPolicy: z.enum(["inherit", "normal", "burn_first", "preserve"]).optional(),
   status: z.string(),
   securityWorkAuthorized: z.boolean().optional(),
   usage: AccountUsageSchema.nullable().optional(),

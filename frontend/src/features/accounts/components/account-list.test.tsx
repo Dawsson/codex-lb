@@ -45,7 +45,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId="acc-1"
         onSelect={onSelect}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
       />,
     );
@@ -107,7 +106,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
       />,
     );
@@ -160,7 +158,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
       />,
     );
@@ -211,7 +208,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
       />,
     );
@@ -248,7 +244,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
         sortMode="name_asc"
         onSortModeChange={() => {}}
@@ -288,7 +283,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
         sortMode="name_desc"
         onSortModeChange={() => {}}
@@ -328,7 +322,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
         sortMode="reset_latest"
         onSortModeChange={() => {}}
@@ -387,7 +380,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
         sortMode="reset_latest"
         onSortModeChange={() => {}}
@@ -420,7 +412,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
       />,
     );
@@ -459,7 +450,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
       />,
     );
@@ -507,7 +497,6 @@ describe("AccountList", () => {
         ]}
         selectedAccountId={null}
         onSelect={() => {}}
-        onOpenImport={() => {}}
         onOpenOauth={() => {}}
       />,
     );

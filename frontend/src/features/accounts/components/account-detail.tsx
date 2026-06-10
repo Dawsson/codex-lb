@@ -1,10 +1,11 @@
-import { User } from "lucide-react";
+import { Settings, User } from "lucide-react";
+import { useState } from "react";
 
 import { isEmailLabel } from "@/components/blur-email";
+import { Button } from "@/components/ui/button";
 import { usePrivacyStore } from "@/hooks/use-privacy";
-import { AccountAliasForm } from "@/features/accounts/components/account-alias-form";
 import { AccountActions } from "@/features/accounts/components/account-actions";
-import { AccountProxyBinding } from "@/features/accounts/components/account-proxy-binding";
+import { AccountSettingsDialog } from "@/features/accounts/components/account-settings-dialog";
 import { AccountTokenInfo } from "@/features/accounts/components/account-token-info";
 import { AccountUsagePanel } from "@/features/accounts/components/account-usage-panel";
 import type {
@@ -26,7 +27,6 @@ export type AccountDetailProps = {
   onSetAlias: (accountId: string, alias: string | null) => Promise<unknown>;
   onDelete: (accountId: string) => void;
   onReauth: () => void;
-  onExportAuth: (accountId: string) => void;
   onLimitWarmupChange: (accountId: string, enabled: boolean) => void;
   onRoutingPolicyChange: (
     accountId: string,
@@ -47,13 +47,13 @@ export function AccountDetail({
   onSetAlias,
   onDelete,
   onReauth,
-  onExportAuth,
   onLimitWarmupChange,
   onRoutingPolicyChange,
   onSecurityWorkAuthorizedChange,
   upstreamProxyAdmin = null,
   onProxyBindingSave,
 }: AccountDetailProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { data: trends } = useAccountTrends(account?.accountId ?? null);
   const blurred = usePrivacyStore((s) => s.blurred);
 
@@ -87,10 +87,10 @@ export function AccountDetail({
   return (
     <div
       key={account.accountId}
-      className="animate-fade-in-up space-y-4 rounded-xl border bg-card p-5"
+      className="space-y-4 rounded-xl border bg-card p-5"
     >
-      {/* Account header */}
-      <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
         <h2 className="text-base font-semibold">
           {titleIsEmail ? (
             <>
@@ -120,17 +120,30 @@ export function AccountDetail({
         <p className="mt-0.5 text-xs text-muted-foreground">
           {workspaceLabel} | {formatSlug(account.planType)}{seatLabel}
         </p>
+        </div>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="Account settings"
+          className="shrink-0"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings aria-hidden />
+        </Button>
       </div>
 
-      <AccountAliasForm account={account} busy={busy} onSetAlias={onSetAlias} />
-      {onProxyBindingSave ? (
-        <AccountProxyBinding
-          account={account}
-          admin={upstreamProxyAdmin}
-          busy={busy}
-          onSave={onProxyBindingSave}
-        />
-      ) : null}
+      <AccountSettingsDialog
+        account={account}
+        busy={busy}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        onSetAlias={onSetAlias}
+        onRoutingPolicyChange={onRoutingPolicyChange}
+        onSecurityWorkAuthorizedChange={onSecurityWorkAuthorizedChange}
+        upstreamProxyAdmin={upstreamProxyAdmin}
+        {...(onProxyBindingSave ? { onProxyBindingSave } : {})}
+      />
       <AccountUsagePanel account={account} trends={trends} />
       <AccountTokenInfo account={account} />
       <AccountActions
@@ -141,10 +154,7 @@ export function AccountDetail({
         onProbe={onProbe}
         onDelete={onDelete}
         onReauth={onReauth}
-        onExportAuth={onExportAuth}
         onLimitWarmupChange={onLimitWarmupChange}
-        onRoutingPolicyChange={onRoutingPolicyChange}
-        onSecurityWorkAuthorizedChange={onSecurityWorkAuthorizedChange}
       />
     </div>
   );

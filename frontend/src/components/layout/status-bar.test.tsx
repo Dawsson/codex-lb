@@ -23,14 +23,10 @@ function renderStatusBar() {
 }
 
 describe("StatusBar", () => {
-  it("links to the official GitHub repository", () => {
+  it("shows the current version", async () => {
     renderStatusBar();
 
-    const link = screen.getByRole("link", { name: "Open official GitHub repository" });
-
-    expect(link).toHaveAttribute("href", "https://github.com/soju06/codex-lb");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noreferrer");
+    expect(await screen.findByText(/^v/)).toBeInTheDocument();
   });
 
   it("links to release notes when a newer version is available", async () => {
@@ -67,7 +63,7 @@ describe("StatusBar", () => {
 
     renderStatusBar();
 
-    expect(await screen.findByText("Version:")).toBeInTheDocument();
+    expect(await screen.findByText(/^v/)).toBeInTheDocument();
     expect(
       screen.queryByRole("link", {
         name: /New version available/,

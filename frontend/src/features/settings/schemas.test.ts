@@ -298,4 +298,18 @@ describe("UpstreamProxyAdminSchema", () => {
     expect(parsed.pools[0]?.endpointIds).toEqual(["ep_1"]);
     expect(parsed.bindings[0]?.accountId).toBe("acc_1");
   });
+
+  it("coerces null collections to empty arrays", () => {
+    const parsed = UpstreamProxyAdminSchema.parse({
+      routingEnabled: false,
+      defaultPoolId: null,
+      endpoints: null,
+      pools: null,
+      bindings: null,
+    });
+
+    expect(parsed.endpoints).toEqual([]);
+    expect(parsed.pools).toEqual([]);
+    expect(parsed.bindings).toEqual([]);
+  });
 });

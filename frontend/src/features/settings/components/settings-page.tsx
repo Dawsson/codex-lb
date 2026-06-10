@@ -1,5 +1,4 @@
 import { Suspense, lazy } from "react";
-import { Settings } from "lucide-react";
 
 import { AlertMessage } from "@/components/alert-message";
 import { LoadingOverlay } from "@/components/layout/loading-overlay";
@@ -57,37 +56,28 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="animate-fade-in-up space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-          <Settings className="h-5 w-5 text-primary" />
-          Settings
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">Configure routing, auth, API key management, and firewall.</p>
-      </div>
-
+    <div className="mx-auto w-full max-w-4xl space-y-4">
       {!settings ? (
         <SettingsSkeleton />
       ) : (
         <>
-          {error ? <AlertMessage variant="error">{error}</AlertMessage> : null}
-
-          {authMode === "trusted_header" ? (
-            <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-medium text-foreground">
-              Dashboard access is authenticated by a trusted reverse-proxy header. Password and TOTP stay
-              available only as optional fallback login.
-            </div>
-          ) : null}
-
-          {authMode === "disabled" ? (
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-medium text-foreground">
-              Dashboard auth is fully bypassed by configuration. Only use this mode behind network restrictions
-              or external access control.
-            </div>
-          ) : null}
-
           <div className="space-y-4">
+            {error ? <AlertMessage variant="error">{error}</AlertMessage> : null}
+
+            {authMode === "trusted_header" ? (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-medium text-foreground">
+                Dashboard access is authenticated by a trusted reverse-proxy header. Password and TOTP stay
+                available only as optional fallback login.
+              </div>
+            ) : null}
+
+            {authMode === "disabled" ? (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-medium text-foreground">
+                Dashboard auth is fully bypassed by configuration. Only use this mode behind network restrictions
+                or external access control.
+              </div>
+            ) : null}
+
             <AppearanceSettings />
             <RoutingSettings
               key={[

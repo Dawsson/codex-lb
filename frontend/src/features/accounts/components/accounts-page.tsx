@@ -9,8 +9,6 @@ import { useDialogState } from "@/hooks/use-dialog-state";
 import { AccountDetail } from "@/features/accounts/components/account-detail";
 import { AccountList } from "@/features/accounts/components/account-list";
 import { AccountsSkeleton } from "@/features/accounts/components/accounts-skeleton";
-import { ImportDialog } from "@/features/accounts/components/import-dialog";
-import { AuthExportDialog } from "@/features/accounts/components/auth-export-dialog";
 import { useAccounts } from "@/features/accounts/hooks/use-accounts";
 import {
   DEFAULT_ACCOUNT_SORT_MODE,
@@ -20,7 +18,6 @@ import {
 import { useOauth } from "@/features/accounts/hooks/use-oauth";
 import { useUpstreamProxyAdmin } from "@/features/settings/hooks/use-settings";
 import { useAccountQuotaDisplayStore } from "@/hooks/use-account-quota-display";
-import type { AccountAuthExportResponse } from "@/features/accounts/schemas";
 import { getErrorMessageOrNull } from "@/utils/errors";
 
 const OauthDialog = lazy(() =>
@@ -34,7 +31,6 @@ export function AccountsPage() {
   const [accountSortMode, setAccountSortMode] = useState<AccountSortMode>(DEFAULT_ACCOUNT_SORT_MODE);
   const {
     accountsQuery,
-    importMutation,
     pauseMutation,
     resumeMutation,
     setAliasMutation,
@@ -43,15 +39,12 @@ export function AccountsPage() {
     updateMutation,
     deleteMutation,
     routingPolicyMutation,
-    exportAuthMutation,
   } = useAccounts();
   const { upstreamProxyQuery, accountBindingMutation } = useUpstreamProxyAdmin();
   const oauth = useOauth();
 
-  const importDialog = useDialogState();
   const oauthDialog = useDialogState();
   const deleteDialog = useDialogState<string>();
-  const exportDialog = useDialogState<AccountAuthExportResponse>();
   const [deleteHistory, setDeleteHistory] = useState(false);
 
   const accounts = useMemo(
@@ -98,7 +91,6 @@ export function AccountsPage() {
   );
 
   const mutationBusy =
-    importMutation.isPending ||
     pauseMutation.isPending ||
     resumeMutation.isPending ||
     setAliasMutation.isPending ||
@@ -106,12 +98,10 @@ export function AccountsPage() {
     limitWarmupMutation.isPending ||
     deleteMutation.isPending ||
     routingPolicyMutation.isPending ||
-    exportAuthMutation.isPending ||
     updateMutation.isPending ||
     accountBindingMutation.isPending;
 
   const mutationError =
-    getErrorMessageOrNull(importMutation.error) ||
     getErrorMessageOrNull(pauseMutation.error) ||
     getErrorMessageOrNull(resumeMutation.error) ||
     getErrorMessageOrNull(setAliasMutation.error) ||
@@ -119,21 +109,12 @@ export function AccountsPage() {
     getErrorMessageOrNull(limitWarmupMutation.error) ||
     getErrorMessageOrNull(deleteMutation.error) ||
     getErrorMessageOrNull(routingPolicyMutation.error) ||
-    getErrorMessageOrNull(exportAuthMutation.error) ||
     getErrorMessageOrNull(updateMutation.error) ||
     getErrorMessageOrNull(upstreamProxyQuery.error) ||
     getErrorMessageOrNull(accountBindingMutation.error);
 
   return (
-    <div className="animate-fade-in-up space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage imported accounts and authentication flows.
-        </p>
-      </div>
-
+    <div className="space-y-4">
       {mutationError ? (
         <AlertMessage variant="error">{mutationError}</AlertMessage>
       ) : null}
@@ -142,14 +123,13 @@ export function AccountsPage() {
         <AccountsSkeleton />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <div className="rounded-xl border bg-card p-4">
+          <div className="rounded-xl border bg-card p-3 sm:p-4">
             <AccountList
               accounts={accounts}
               selectedAccountId={resolvedSelectedAccountId}
               onSelect={handleSelectAccount}
               sortMode={accountSortMode}
               onSortModeChange={setAccountSortMode}
-              onOpenImport={() => importDialog.show()}
               onOpenOauth={() => oauthDialog.show()}
             />
           </div>
@@ -168,12 +148,6 @@ export function AccountsPage() {
             }
             onDelete={(accountId) => deleteDialog.show(accountId)}
             onReauth={() => oauthDialog.show()}
-            onExportAuth={(accountId) => {
-              void exportAuthMutation
-                .mutateAsync(accountId)
-                .then((result) => exportDialog.show(result))
-                .catch(() => null);
-            }}
             onLimitWarmupChange={(accountId, enabled) =>
               void limitWarmupMutation.mutateAsync({ accountId, enabled })
             }
@@ -197,16 +171,6 @@ export function AccountsPage() {
         </div>
       )}
 
-      <ImportDialog
-        open={importDialog.open}
-        busy={importMutation.isPending}
-        error={getErrorMessageOrNull(importMutation.error)}
-        onOpenChange={importDialog.onOpenChange}
-        onImport={async (file) => {
-          await importMutation.mutateAsync(file);
-        }}
-      />
-
       <Suspense fallback={null}>
         <OauthDialog
           open={oauthDialog.open}
@@ -225,12 +189,6 @@ export function AccountsPage() {
           onReset={oauth.reset}
         />
       </Suspense>
-
-      <AuthExportDialog
-        open={exportDialog.open}
-        exportData={exportDialog.data}
-        onOpenChange={exportDialog.onOpenChange}
-      />
 
       <ConfirmDialog
         open={deleteDialog.open}

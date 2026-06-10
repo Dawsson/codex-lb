@@ -112,11 +112,10 @@ function BreakdownPanel({
           className="space-y-3 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{ maxHeight: "18rem" }}
         >
-          {rows.map((row, index) => (
+          {rows.map((row) => (
             <div
               key={row.id}
-              className="animate-fade-in-up space-y-1.5"
-              style={{ animationDelay: `${index * 50}ms` }}
+              className="space-y-1.5"
             >
               <div className="flex items-center justify-between gap-3 text-xs">
                 <span className="min-w-0 truncate font-medium">
@@ -129,7 +128,7 @@ function BreakdownPanel({
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                  className="h-full rounded-full bg-primary"
                   style={{ width: `${Math.max(row.share * 100, 1)}%` }}
                 />
               </div>

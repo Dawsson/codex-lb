@@ -19,14 +19,14 @@ function AppLayout() {
   const timeFormat = useTimeFormatStore((state) => state.timeFormat);
 
   return (
-    <div className="flex min-h-screen flex-col bg-background pb-10" data-time-format={timeFormat}>
+    <div className="flex min-h-screen flex-col bg-background pb-8" data-time-format={timeFormat}>
       <AppHeader
         onLogout={() => {
           void logout();
         }}
         showLogout={passwordRequired}
       />
-      <main className="mx-auto w-full max-w-[1500px] flex-1 px-4 py-8 sm:px-6">
+      <main className="w-full flex-1 px-3 py-4 sm:px-4">
         <Outlet />
       </main>
       <StatusBar />

@@ -11,7 +11,6 @@ import {
 } from "recharts";
 
 import { useChartColors } from "@/hooks/use-chart-colors";
-import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import type { UsageTrendPoint } from "@/features/accounts/schemas";
 import { formatChartDateTime } from "@/utils/formatters";
 
@@ -105,7 +104,6 @@ export function AccountTrendChart({
   secondaryScheduled = [],
 }: AccountTrendChartProps) {
   const chartColors = useChartColors();
-  const reducedMotion = useReducedMotion();
   const c1 = chartColors[0];
   const c2 = chartColors[1];
   const data = useMemo(
@@ -166,8 +164,7 @@ export function AccountTrendChart({
             fill="url(#trend-primary)"
             dot={false}
             activeDot={{ r: 3, strokeWidth: 1.5, fill: "hsl(var(--popover))" }}
-            isAnimationActive={!reducedMotion}
-            animationDuration={500}
+            isAnimationActive={false}
           />
         )}
         {secondary.length > 0 && (
@@ -179,9 +176,7 @@ export function AccountTrendChart({
             fill="url(#trend-secondary)"
             dot={false}
             activeDot={{ r: 3, strokeWidth: 1.5, fill: "hsl(var(--popover))" }}
-            isAnimationActive={!reducedMotion}
-            animationDuration={500}
-            animationBegin={100}
+            isAnimationActive={false}
           />
         )}
         {secondaryScheduled.length > 0 && (
@@ -194,9 +189,7 @@ export function AccountTrendChart({
             dot={false}
             activeDot={{ r: 3, strokeWidth: 1.5, fill: "hsl(var(--popover))" }}
             connectNulls={false}
-            isAnimationActive={!reducedMotion}
-            animationDuration={500}
-            animationBegin={150}
+            isAnimationActive={false}
           />
         )}
       </AreaChart>

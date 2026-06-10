@@ -62,7 +62,7 @@ export function LoginForm() {
 
         {error ? <AlertMessage variant="error" className="mt-4">{error}</AlertMessage> : null}
 
-        <Button type="submit" className="press-scale mt-5 w-full" disabled={loading}>
+        <Button type="submit" className="mt-5 w-full" disabled={loading}>
           {loading ? <Spinner size="sm" className="mr-2" /> : null}
           Sign In
         </Button>

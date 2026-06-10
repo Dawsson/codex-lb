@@ -101,7 +101,6 @@ async function capture(
   await applyTheme(page, opts.theme);
   await interceptApi(page, opts.session);
 
-  // Trigger prefers-reduced-motion so the existing CSS media query kicks in.
   await page.emulateMedia({ reducedMotion: "reduce" });
   // Inject blanket CSS before page scripts run to kill CSS animations instantly.
   // (addInitScript survives navigation; addStyleTag on about:blank does not.)

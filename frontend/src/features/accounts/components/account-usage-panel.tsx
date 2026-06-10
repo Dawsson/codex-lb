@@ -50,7 +50,7 @@ function QuotaRow({
       </div>
       <div className={cn("h-1.5 w-full overflow-hidden rounded-full", quotaBarTrack(clamped))}>
         <div
-          className={cn("h-full rounded-full transition-all duration-500 ease-out", quotaBarColor(clamped))}
+          className={cn("h-full rounded-full", quotaBarColor(clamped))}
           style={{ width: `${clamped}%` }}
         />
       </div>
@@ -105,7 +105,7 @@ function AdditionalQuotaRow({
       <div className="h-1.5 rounded-full bg-muted">
         <div
           className={cn(
-            "h-full rounded-full transition-all",
+            "h-full rounded-full",
             clamped > 95
               ? "bg-red-500"
               : clamped > 80

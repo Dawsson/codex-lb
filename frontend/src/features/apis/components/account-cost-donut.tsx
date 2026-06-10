@@ -4,7 +4,6 @@ import { Cell, Pie, PieChart, Sector, type PieSectorShapeProps } from "recharts"
 import { buildDonutPalette } from "@/utils/colors";
 import { formatCurrency } from "@/utils/formatters";
 import { usePrivacyStore } from "@/hooks/use-privacy";
-import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { useThemeStore } from "@/hooks/use-theme";
 import type { ApiKeyAccountCost } from "@/features/apis/schemas";
 
@@ -34,7 +33,6 @@ type DonutDatum = {
 export function AccountCostDonut({ accountCosts, totalCostUsd }: AccountCostDonutProps) {
   const isDark = useThemeStore((s) => s.theme === "dark");
   const blurred = usePrivacyStore((s) => s.blurred);
-  const reducedMotion = useReducedMotion();
   const [activeLegendId, setActiveLegendId] = useState<string | null>(null);
   const legendRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const consumedColor = isDark ? "#404040" : "#d3d3d3";
@@ -128,9 +126,7 @@ export function AccountCostDonut({ accountCosts, totalCostUsd }: AccountCostDonu
                 dataKey="value"
                 stroke="none"
                 shape={renderDonutShape}
-                isAnimationActive={!reducedMotion}
-                animationDuration={600}
-                animationEasing="ease-out"
+                isAnimationActive={false}
                 onMouseEnter={(data) => {
                   const datum = data.payload as DonutDatum | undefined;
                   if (typeof datum?.id === "string") {
@@ -169,8 +165,8 @@ export function AccountCostDonut({ accountCosts, totalCostUsd }: AccountCostDonu
                   }}
                   type="button"
                   key={item.id}
-                  className="animate-fade-in-up flex h-7 w-full items-center justify-between px-1.5 gap-3 rounded-lg border bg-transparent text-xs transition-all"
-                  style={{ animationDelay: `${i * 75}ms`, borderColor: isActive ? item.color : "transparent" }}
+                  className="flex h-7 w-full items-center justify-between px-1.5 gap-3 rounded-lg border bg-transparent text-xs transition-colors"
+                  style={{ borderColor: isActive ? item.color : "transparent" }}
                   onMouseEnter={() => setActiveLegendId(item.id)}
                   onMouseLeave={() => setActiveLegendId(null)}
                   onFocus={() => setActiveLegendId(item.id)}

@@ -126,6 +126,28 @@ func normalizeWindowKey(window string) string {
 	}
 }
 
+// CapacityForPlan ports app.core.usage.capacity_for_plan. It is exported for
+// use by internal/proxy's account-selection logic.
+func CapacityForPlan(planType string, window string) *float64 {
+	return capacityForPlan(planType, window)
+}
+
+// DefaultWindowMinutes ports app.core.usage.default_window_minutes. It is
+// exported for use by internal/proxy's account-selection logic.
+func DefaultWindowMinutes(window string) *int64 {
+	return defaultWindowMinutes(window)
+}
+
+// IsPrimaryWindowMinutes ports app.core.usage.is_primary_window_minutes. It
+// is exported for use by internal/proxy's account-selection logic.
+func IsPrimaryWindowMinutes(windowMinutes *int64) bool {
+	if windowMinutes == nil {
+		return false
+	}
+	primaryDefault := defaultWindowMinutes("primary")
+	return primaryDefault != nil && *windowMinutes == *primaryDefault
+}
+
 // capacityForPlan ports app.core.usage.capacity_for_plan.
 func capacityForPlan(planType string, window string) *float64 {
 	normalized := normalizeAccountPlanType(planType)
@@ -199,6 +221,18 @@ func resolveWindowMinutes(window string, rows []WindowRow) *int64 {
 
 func isWeeklyWindowMinutes(windowMinutes *int64) bool {
 	return windowMinutes != nil && *windowMinutes == defaultWindowMinutesSecondary
+}
+
+// ShouldUseWeeklyPrimary ports app.core.usage.should_use_weekly_primary. It is
+// exported for use by internal/proxy's account-selection logic.
+func ShouldUseWeeklyPrimary(primaryRow WindowRow, secondaryRow *WindowRow) bool {
+	if !isWeeklyWindowMinutes(primaryRow.WindowMinutes) {
+		return false
+	}
+	if secondaryRow == nil {
+		return true
+	}
+	return shouldPreferPrimaryRow(primaryRow, *secondaryRow)
 }
 
 // remainingPercentFromUsed ports app.core.usage.remaining_percent_from_used.

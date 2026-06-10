@@ -40,3 +40,81 @@ func (r Repository) Settings(ctx context.Context) (Settings, error) {
 	settings.TOTPConfigured = len(totpSecret) > 0
 	return settings, nil
 }
+
+func (r Repository) TrySetPasswordHash(ctx context.Context, passwordHash string) (bool, error) {
+	result, err := r.store.DB().ExecContext(ctx, `
+		UPDATE dashboard_settings
+		   SET password_hash = ?, bootstrap_token_encrypted = NULL, bootstrap_token_hash = NULL
+		 WHERE password_hash IS NULL
+	`, passwordHash)
+	if err != nil {
+		return false, fmt.Errorf("set password hash: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
+func (r Repository) SetPasswordHash(ctx context.Context, passwordHash string) error {
+	_, err := r.store.DB().ExecContext(ctx, `
+		UPDATE dashboard_settings SET password_hash = ?
+	`, passwordHash)
+	if err != nil {
+		return fmt.Errorf("update password hash: %w", err)
+	}
+	return nil
+}
+
+func (r Repository) ClearPasswordAndTOTP(ctx context.Context) error {
+	_, err := r.store.DB().ExecContext(ctx, `
+		UPDATE dashboard_settings
+		   SET password_hash = NULL,
+		       totp_secret_encrypted = NULL,
+		       totp_last_verified_step = NULL,
+		       totp_required_on_login = 0
+	`)
+	if err != nil {
+		return fmt.Errorf("clear password and totp: %w", err)
+	}
+	return nil
+}
+
+func (r Repository) SetTOTPSecret(ctx context.Context, secretEncrypted []byte) error {
+	_, err := r.store.DB().ExecContext(ctx, `
+		UPDATE dashboard_settings
+		   SET totp_secret_encrypted = ?, totp_last_verified_step = NULL
+	`, secretEncrypted)
+	if err != nil {
+		return fmt.Errorf("set totp secret: %w", err)
+	}
+	return nil
+}
+
+func (r Repository) ClearTOTP(ctx context.Context) error {
+	_, err := r.store.DB().ExecContext(ctx, `
+		UPDATE dashboard_settings
+		   SET totp_secret_encrypted = NULL,
+		       totp_last_verified_step = NULL,
+		       totp_required_on_login = 0
+	`)
+	if err != nil {
+		return fmt.Errorf("clear totp: %w", err)
+	}
+	return nil
+}
+
+func (r Repository) TOTPSecretEncrypted(ctx context.Context) ([]byte, error) {
+	var secret []byte
+	err := r.store.DB().QueryRowContext(ctx, `
+		SELECT totp_secret_encrypted FROM dashboard_settings ORDER BY id LIMIT 1
+	`).Scan(&secret)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load totp secret: %w", err)
+	}
+	return secret, nil
+}

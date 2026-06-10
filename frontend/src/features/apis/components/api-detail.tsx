@@ -110,7 +110,7 @@ export function ApiDetail({
 	return (
 		<div
 			key={apiKey.id}
-			className="animate-fade-in-up space-y-4 rounded-xl border bg-card p-5"
+			className="space-y-4 rounded-xl border bg-card p-5"
 		>
 			<div className="flex items-start justify-between">
 				<h2 className="text-base font-semibold">{apiKey.name}</h2>

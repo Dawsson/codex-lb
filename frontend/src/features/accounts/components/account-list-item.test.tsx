@@ -159,12 +159,12 @@ describe("AccountListItem", () => {
     expect(screen.getByText("Preserve")).toBeInTheDocument();
   });
 
-  it("marks normal accounts in the list", () => {
+  it("hides routing policy badges for normal accounts", () => {
     const account = createAccountSummary({ routingPolicy: "normal" });
 
     render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
 
-    expect(screen.getByText("Normal")).toBeInTheDocument();
+    expect(screen.queryByText("Normal")).not.toBeInTheDocument();
   });
 
   it("hides routing policy badges for accounts that require operator recovery", () => {
@@ -204,7 +204,7 @@ describe("AccountListItem", () => {
 
     expect(screen.getByText("Work seat")).toBeInTheDocument();
     expect(
-      screen.getByText((_, element) => element?.textContent === "work@example.com | Team | Design Workspace | Member"),
+      screen.getByText((_, element) => element?.textContent === "work@example.com · Team · Design Workspace · Member"),
     ).toBeInTheDocument();
   });
 });

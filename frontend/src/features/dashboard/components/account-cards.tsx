@@ -33,14 +33,13 @@ export function AccountCards({ accounts, onAction }: AccountCardsProps) {
         maxHeight: `calc(${ACCOUNT_CARD_VISIBLE_ROWS} * ${ACCOUNT_CARD_ROW_HEIGHT_REM}rem + ${(ACCOUNT_CARD_VISIBLE_ROWS - 1) * ACCOUNT_CARD_ROW_GAP_REM}rem)`,
       }}
     >
-      {accounts.map((account, index) => (
-        <div key={account.accountId} className="animate-fade-in-up" style={{ animationDelay: `${index * 75}ms` }}>
-          <AccountCard
-            account={account}
-            showAccountId={account.isEmailDuplicate === true}
-            onAction={onAction}
-          />
-        </div>
+      {accounts.map((account) => (
+        <AccountCard
+          key={account.accountId}
+          account={account}
+          showAccountId={account.isEmailDuplicate === true}
+          onAction={onAction}
+        />
       ))}
     </div>
   );

@@ -33,6 +33,11 @@ export const AdditionalQuotaPolicySchema = z.object({
   routingPolicy: AdditionalQuotaRoutingPolicySchema,
   modelIds: z.array(z.string()).optional().default([]),
 });
+const emptyArray = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (value == null ? [] : value), z.array(schema));
+
+const emptyRecord = <T extends z.ZodTypeAny>(valueSchema: T) =>
+  z.preprocess((value) => (value == null ? {} : value), z.record(z.string(), valueSchema));
 const LimitWarmupModelSchema = z.string().min(1).max(128);
 const LimitWarmupPromptSchema = z.string().min(1).max(512);
 const WeeklyPaceWorkingDaysValueSchema = z.string().regex(/^[0-6](,[0-6])*$/);
@@ -72,10 +77,8 @@ export const DashboardSettingsSchema = z
     stickyReallocationBudgetThresholdPct: z.number().min(0).max(100).optional(),
     stickyReallocationPrimaryBudgetThresholdPct: z.number().min(0).max(100).optional(),
     stickyReallocationSecondaryBudgetThresholdPct: z.number().min(0).max(100).optional(),
-    additionalQuotaRoutingPolicies: z
-      .record(z.string(), AdditionalQuotaRoutingPolicySchema)
-      .optional(),
-    additionalQuotaPolicies: z.array(AdditionalQuotaPolicySchema).optional().default([]),
+    additionalQuotaRoutingPolicies: emptyRecord(AdditionalQuotaRoutingPolicySchema).optional(),
+    additionalQuotaPolicies: emptyArray(AdditionalQuotaPolicySchema).optional().default([]),
     warmupModel: z.string().trim().min(1).optional().default("gpt-5.4-mini"),
     importWithoutOverwrite: z.boolean(),
     totpRequiredOnLogin: z.boolean(),
@@ -226,9 +229,9 @@ export const AccountProxyBindingRequestSchema = z.object({
 export const UpstreamProxyAdminSchema = z.object({
   routingEnabled: z.boolean(),
   defaultPoolId: z.string().nullable(),
-  endpoints: z.array(UpstreamProxyEndpointSchema),
-  pools: z.array(UpstreamProxyPoolSchema),
-  bindings: z.array(AccountProxyBindingSchema),
+  endpoints: emptyArray(UpstreamProxyEndpointSchema),
+  pools: emptyArray(UpstreamProxyPoolSchema),
+  bindings: emptyArray(AccountProxyBindingSchema),
 });
 
 export type UpstreamProxyEndpoint = z.infer<typeof UpstreamProxyEndpointSchema>;

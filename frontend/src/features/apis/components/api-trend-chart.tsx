@@ -10,7 +10,6 @@ import {
 } from "recharts";
 
 import { useChartColors } from "@/hooks/use-chart-colors";
-import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import type { ApiKeyTrendPoint } from "@/features/apis/schemas";
 import { formatChartDateTime, formatCompactNumber, formatCurrency } from "@/utils/formatters";
 
@@ -108,7 +107,6 @@ export type ApiTrendChartProps = {
 
 export function ApiTrendChart({ cost, tokens }: ApiTrendChartProps) {
   const chartColors = useChartColors();
-  const reducedMotion = useReducedMotion();
   const c1 = chartColors[0];
   const c2 = chartColors[1];
   const data = useMemo(() => mergePoints(cost, tokens), [cost, tokens]);
@@ -185,8 +183,7 @@ export function ApiTrendChart({ cost, tokens }: ApiTrendChartProps) {
           fill="url(#api-trend-tokens)"
           dot={false}
           activeDot={{ r: 3, strokeWidth: 1.5, fill: "hsl(var(--popover))" }}
-          isAnimationActive={!reducedMotion}
-          animationDuration={500}
+          isAnimationActive={false}
         />
         <Area
           yAxisId="cost"
@@ -197,9 +194,7 @@ export function ApiTrendChart({ cost, tokens }: ApiTrendChartProps) {
           fill="url(#api-trend-cost)"
           dot={false}
           activeDot={{ r: 3, strokeWidth: 1.5, fill: "hsl(var(--popover))" }}
-          isAnimationActive={!reducedMotion}
-          animationDuration={500}
-          animationBegin={100}
+          isAnimationActive={false}
         />
       </AreaChart>
     </ResponsiveContainer>

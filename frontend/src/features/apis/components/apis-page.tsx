@@ -104,14 +104,7 @@ export function ApisPage() {
 	};
 
 	return (
-		<div className="animate-fade-in-up space-y-6">
-			<div>
-				<h1 className="text-2xl font-semibold tracking-tight">APIs</h1>
-				<p className="mt-1 text-sm text-muted-foreground">
-					Manage API keys for client access and usage monitoring.
-				</p>
-			</div>
-
+		<div className="space-y-4">
 			{pageError ? (
 				<AlertMessage variant="error">{pageError}</AlertMessage>
 			) : null}
@@ -136,7 +129,7 @@ export function ApisPage() {
 					</Button>
 				</div>
 			) : (
-				<div className="space-y-6">
+				<div className="space-y-4">
 					<ApiKeysOverview apiKeys={apiKeys} />
 
 					<div className="grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">

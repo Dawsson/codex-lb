@@ -143,40 +143,6 @@
   }
 }
 
-/* Shimmer animation for skeletons */
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-/* Subtle fade-in for page transitions */
-@keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in-up {
-  animation: fade-in-up 0.35s ease-out both;
-}
-
-.animate-delay-75 { animation-delay: 75ms; }
-.animate-delay-150 { animation-delay: 150ms; }
-.animate-delay-225 { animation-delay: 225ms; }
-.animate-delay-300 { animation-delay: 300ms; }
-
-.press-scale {
-  transition: transform 0.12s ease;
-}
-.press-scale:active {
-  transform: scale(0.97);
-}
-
 /* Smooth gradient text */
 .text-gradient {
   background: linear-gradient(135deg, var(--primary), oklch(0.60 0.22 290));
@@ -208,36 +174,6 @@
   pointer-events: none;
   padding: 4px 8px;
   margin: -4px -8px;
-}
-
-/* Card hover lift */
-.card-hover {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.card-hover:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .animate-fade-in-up {
-    animation: none;
-  }
-  .animate-delay-75, .animate-delay-150, .animate-delay-225, .animate-delay-300 {
-    animation-delay: 0ms;
-  }
-  .card-hover {
-    transition: none;
-  }
-  .card-hover:hover {
-    transform: none;
-  }
-  .press-scale {
-    transition: none;
-  }
-  .press-scale:active {
-    transform: none;
-  }
 }
 
 /* Scrollbar styling */

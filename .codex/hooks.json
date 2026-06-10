@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/dawson/projects/codex-lb/.codex/hooks/skill_guard.py'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/dawson/projects/codex-lb/.codex/hooks/post_edit_tracker.py'"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/dawson/projects/codex-lb/.codex/hooks/skill_tracker.py'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/dawson/projects/codex-lb/.codex/hooks/skill_activation.py'"
+          }
+        ]
+      }
+    ]
+  }
+}

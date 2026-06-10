@@ -15,6 +15,12 @@ type Handler struct {
 	repo         Repository
 	sessions     *scs.SessionManager
 	authDisabled bool
+	encryptor    Encryptor
+}
+
+type Encryptor interface {
+	Encrypt(value string) ([]byte, error)
+	Decrypt(value []byte) (string, error)
 }
 
 type SessionResponse struct {
@@ -37,8 +43,8 @@ type statusResponse struct {
 	Status string `json:"status"`
 }
 
-func NewHandler(repo Repository, sessions *scs.SessionManager, authDisabled bool) Handler {
-	return Handler{repo: repo, sessions: sessions, authDisabled: authDisabled}
+func NewHandler(repo Repository, sessions *scs.SessionManager, authDisabled bool, encryptor Encryptor) Handler {
+	return Handler{repo: repo, sessions: sessions, authDisabled: authDisabled, encryptor: encryptor}
 }
 
 func (h Handler) Session(w http.ResponseWriter, r *http.Request) {

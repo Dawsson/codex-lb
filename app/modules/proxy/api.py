@@ -230,6 +230,7 @@ _V1_MAX_OUTPUT_TOKEN_OVERRIDES: Final[dict[str, int]] = {
     "gpt-5.3-codex": 128_000,
 }
 _OPPORTUNISTIC_RETRY_AFTER_SECONDS = 60
+_PERF_DEBUG_ENABLED = True
 
 # OpenAI error ``type`` -> HTTP status for the /v1/images/* non-streaming
 # error path. The /v1/responses path has its own ``_status_for_error``
@@ -252,6 +253,55 @@ _IMAGE_ERROR_CODE_STATUS: Final[dict[str, int]] = {
     "insufficient_quota": 429,
 }
 _WARMUP_MODES: Final[frozenset[str]] = frozenset({"normal", "strict", "force"})
+
+
+class _PerfDebugTrace:
+    def __init__(
+        self,
+        *,
+        route: str,
+        request: Request,
+        model: str | None,
+        transport: str,
+        bridge_active: bool,
+        api_key: ApiKeyData | None,
+    ) -> None:
+        self.enabled = _PERF_DEBUG_ENABLED
+        self.route = route
+        self.request = request
+        self.model = model
+        self.transport = transport
+        self.bridge_active = bridge_active
+        self.api_key_id = api_key.id if api_key is not None else None
+        self.request_id = get_request_id()
+        self.started = time.perf_counter()
+        self.last = self.started
+
+    def mark(self, phase: str, **fields: object) -> None:
+        if not self.enabled:
+            return
+        now = time.perf_counter()
+        elapsed_ms = (now - self.started) * 1000
+        delta_ms = (now - self.last) * 1000
+        self.last = now
+        extra = " ".join(f"{key}={value}" for key, value in fields.items() if value is not None)
+        logger.warning(
+            "perf_debug phase=%s request_id=%s route=%s method=%s path=%s model=%s transport=%s "
+            "bridge_active=%s api_key_id=%s elapsed_ms=%.1f delta_ms=%.1f%s%s",
+            phase,
+            self.request_id,
+            self.route,
+            self.request.method,
+            self.request.url.path,
+            self.model,
+            self.transport,
+            self.bridge_active,
+            self.api_key_id,
+            elapsed_ms,
+            delta_ms,
+            " " if extra else "",
+            extra,
+        )
 
 
 def _accepts_event_stream(request: Request) -> bool:
@@ -2083,11 +2133,24 @@ async def _stream_responses(
     forwarded_affinity_key: str | None = None,
     enforce_openai_sdk_contract: bool = True,
 ) -> Response:
+    bridge_active = prefer_http_bridge and proxy_service_module.get_settings().http_responses_session_bridge_enabled
+    perf = _PerfDebugTrace(
+        route="responses",
+        request=request,
+        model=payload.model,
+        transport="http_bridge" if prefer_http_bridge else "direct",
+        bridge_active=bridge_active,
+        api_key=api_key,
+    )
+    perf.mark("route_enter", stream=payload.stream, sdk_contract=enforce_openai_sdk_contract)
     apply_api_key_enforcement(payload, api_key)
     validate_model_access(api_key, payload.model)
+    perf.mark("validation_done")
     admission_denial = await _opportunistic_admission_denial(request, context, api_key, model=payload.model)
     if admission_denial is not None:
+        perf.mark("admission_denied", status_code=admission_denial.status_code)
         return admission_denial
+    perf.mark("admission_done")
     owns_reservation = api_key_reservation_override is None
     reservation = (
         api_key_reservation_override
@@ -2099,9 +2162,10 @@ async def _stream_responses(
             request_usage_budget=estimate_api_key_request_usage(payload),
         )
     )
+    perf.mark("reservation_done", skipped=skip_limit_enforcement)
 
     rate_limit_headers = await context.service.rate_limit_headers() if include_rate_limit_headers else {}
-    bridge_active = prefer_http_bridge and proxy_service_module.get_settings().http_responses_session_bridge_enabled
+    perf.mark("rate_limit_headers_done", included=include_rate_limit_headers)
     effective_headers = forwarded_headers or request.headers
     downstream_turn_state = (
         forwarded_downstream_turn_state
@@ -2117,6 +2181,7 @@ async def _stream_responses(
     )
     payload.stream = True
     if prefer_http_bridge:
+        perf.mark("stream_factory_start", factory="http_bridge")
         stream = context.service.stream_http_responses(
             payload,
             effective_headers,
@@ -2132,6 +2197,7 @@ async def _stream_responses(
             forwarded_affinity_key=forwarded_affinity_key,
         )
     else:
+        perf.mark("stream_factory_start", factory="direct")
         stream = context.service.stream_responses(
             payload,
             request.headers,
@@ -2142,16 +2208,20 @@ async def _stream_responses(
             api_key_reservation=reservation,
             suppress_text_done_events=suppress_text_done_events,
         )
+    perf.mark("stream_factory_done")
+    startup_probe_timeout = (
+        _HTTP_BRIDGE_STARTUP_ERROR_PROBE_SECONDS if prefer_http_bridge else _STREAM_STARTUP_ERROR_PROBE_SECONDS
+    )
     stream, startup_error = await _probe_stream_startup_error(
         stream,
         convert_event_errors=bridge_active,
-        timeout_seconds=(
-            _HTTP_BRIDGE_STARTUP_ERROR_PROBE_SECONDS if prefer_http_bridge else _STREAM_STARTUP_ERROR_PROBE_SECONDS
-        ),
+        timeout_seconds=startup_probe_timeout,
     )
+    perf.mark("startup_probe_done", timeout_seconds=startup_probe_timeout, startup_error=startup_error is not None)
     if startup_error is not None:
         if owns_reservation:
             await _release_reservation(reservation)
+            perf.mark("reservation_released_after_startup_error")
         return _stream_startup_error_response(
             request,
             startup_error,
@@ -2173,12 +2243,15 @@ async def _stream_responses(
             request_id=get_request_id(),
             route_family="responses",
         )
+    response_stream = inject_sse_keepalives(
+        stream,
+        get_settings().sse_keepalive_interval_seconds,
+        keepalive_frame=keepalive_frame,
+    )
+    response_stream = _perf_debug_stream(response_stream, perf)
+    perf.mark("streaming_response_return")
     return StreamingResponse(
-        inject_sse_keepalives(
-            stream,
-            get_settings().sse_keepalive_interval_seconds,
-            keepalive_frame=keepalive_frame,
-        ),
+        response_stream,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
@@ -2187,6 +2260,27 @@ async def _stream_responses(
             **rate_limit_headers,
         },
     )
+
+
+async def _perf_debug_stream(stream: AsyncIterator[str], perf: _PerfDebugTrace) -> AsyncIterator[str]:
+    first = True
+    chunks = 0
+    bytes_out = 0
+    try:
+        async for chunk in stream:
+            chunks += 1
+            bytes_out += len(chunk.encode("utf-8")) if isinstance(chunk, str) else 0
+            if first:
+                first = False
+                perf.mark("first_downstream_chunk", chunk_bytes=bytes_out)
+            yield chunk
+        perf.mark("stream_complete", chunks=chunks, bytes_out=bytes_out)
+    except asyncio.CancelledError:
+        perf.mark("stream_cancelled", chunks=chunks, bytes_out=bytes_out)
+        raise
+    except Exception as exc:
+        perf.mark("stream_error", chunks=chunks, bytes_out=bytes_out, error_type=type(exc).__name__)
+        raise
 
 
 def _strip_internal_bridge_headers(headers: Mapping[str, str]) -> dict[str, str]:

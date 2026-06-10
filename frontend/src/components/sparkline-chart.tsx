@@ -1,7 +1,5 @@
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 
-import { useReducedMotion } from "@/hooks/use-reduced-motion";
-
 const CHART_MARGIN = { top: 2, right: 0, bottom: 2, left: 0 } as const;
 
 export type SparklineChartProps = {
@@ -12,7 +10,6 @@ export type SparklineChartProps = {
 };
 
 export function SparklineChart({ data, color, index, height = 40 }: SparklineChartProps) {
-  const reducedMotion = useReducedMotion();
   const gradientId = `sparkline-fill-${index}`;
 
   return (
@@ -30,9 +27,7 @@ export function SparklineChart({ data, color, index, height = 40 }: SparklineCha
           stroke={color}
           strokeWidth={1.5}
           fill={`url(#${gradientId})`}
-          isAnimationActive={!reducedMotion}
-          animationDuration={500}
-          animationBegin={index * 100}
+          isAnimationActive={false}
         />
       </AreaChart>
     </ResponsiveContainer>

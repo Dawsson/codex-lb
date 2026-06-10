@@ -39,7 +39,7 @@ export function AppHeader({
         className,
       )}
     >
-      <div className="mx-auto flex w-full max-w-[1500px] items-center justify-between gap-4">
+      <div className="flex w-full items-center justify-between gap-4">
         {/* Brand */}
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary/15 to-primary/5">
@@ -78,7 +78,7 @@ export function AppHeader({
             variant="ghost"
             onClick={togglePrivacy}
             aria-label={blurred ? "Show emails" : "Hide emails"}
-            className="press-scale hidden h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground sm:inline-flex"
+            className="hidden h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground sm:inline-flex"
           >
             <PrivacyIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
@@ -88,7 +88,7 @@ export function AppHeader({
               size="sm"
               variant="ghost"
               onClick={onLogout}
-              className="press-scale hidden h-8 gap-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground sm:inline-flex"
+              className="hidden h-8 gap-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground sm:inline-flex"
             >
               <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
               Logout

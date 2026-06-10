@@ -180,6 +180,16 @@ async function request<T>(
     return undefined;
   }
 
+  if (payload === undefined || payload === null) {
+    throw new ApiError({
+      status: response.status,
+      code: "invalid_response_payload",
+      message: "Unexpected response payload",
+      details: payload,
+      payload,
+    });
+  }
+
   const parsed = schema.safeParse(payload);
   if (!parsed.success) {
     if (import.meta.env.DEV) {
