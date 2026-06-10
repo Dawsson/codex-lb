@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/soju06/codex-lb/internal/httputil"
 	"github.com/soju06/codex-lb/internal/platform"
 )
 
@@ -100,7 +101,7 @@ func (h Handler) List(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, mapEntry(entry))
 	}
 	writeJSON(w, http.StatusOK, logResponse{
-		Requests: requests,
+		Requests: httputil.EmptySlice(requests),
 		Total:    page.Total,
 		HasMore:  int64(filters.Offset+filters.Limit) < page.Total,
 	})
@@ -136,7 +137,12 @@ func (h Handler) Options(w http.ResponseWriter, r *http.Request) {
 	for _, row := range apiKeyRows {
 		keys = append(keys, apiKeyOption{ID: row.ID, Name: row.Name, KeyPrefix: nullString(row.KeyPrefix)})
 	}
-	writeJSON(w, http.StatusOK, optionsResponse{AccountIDs: accountIDs, ModelOptions: models, APIKeys: keys, Statuses: statuses})
+	writeJSON(w, http.StatusOK, optionsResponse{
+		AccountIDs:   httputil.EmptySlice(accountIDs),
+		ModelOptions: httputil.EmptySlice(models),
+		APIKeys:      httputil.EmptySlice(keys),
+		Statuses:     httputil.EmptySlice(statuses),
+	})
 }
 
 func parseFilters(r *http.Request) Filters {

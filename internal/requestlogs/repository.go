@@ -189,6 +189,56 @@ func (r Repository) APIKeys(ctx context.Context, filters Filters) ([]APIKeyOptio
 	return options, rows.Err()
 }
 
+// CostMetrics summarizes request_logs entries since a point in time, mirroring
+// the totals computed by app.modules.usage.builders._cost_summary_from_logs
+// and _usage_metrics.
+type CostMetrics struct {
+	Requests          int64
+	Errors            int64
+	TotalCostUSD      float64
+	TotalTokens       int64
+	CachedInputTokens int64
+	TopErrorCode      *string
+}
+
+// AggregateCostMetrics computes cost and usage metrics for request_logs
+// entries recorded at or after since (a SQLite-formatted timestamp).
+func (r Repository) AggregateCostMetrics(ctx context.Context, since string) (CostMetrics, error) {
+	var metrics CostMetrics
+	err := r.store.DB().QueryRowContext(ctx, `
+		SELECT count(*),
+		       coalesce(sum(case when status != 'success' then 1 else 0 end), 0),
+		       coalesce(sum(coalesce(cost_usd, 0)), 0),
+		       coalesce(sum(coalesce(input_tokens, 0) + coalesce(output_tokens, reasoning_tokens, 0)), 0),
+		       coalesce(sum(min(coalesce(cached_input_tokens, 0), coalesce(input_tokens, coalesce(cached_input_tokens, 0)))), 0)
+		  FROM request_logs
+		 WHERE deleted_at IS NULL AND requested_at >= ?
+	`, since).Scan(&metrics.Requests, &metrics.Errors, &metrics.TotalCostUSD, &metrics.TotalTokens, &metrics.CachedInputTokens)
+	if err != nil {
+		return CostMetrics{}, fmt.Errorf("aggregate request log cost metrics: %w", err)
+	}
+
+	if metrics.Errors > 0 {
+		var topError sql.NullString
+		err := r.store.DB().QueryRowContext(ctx, `
+			SELECT error_code
+			  FROM request_logs
+			 WHERE deleted_at IS NULL AND requested_at >= ? AND status != 'success' AND error_code IS NOT NULL AND error_code != ''
+			 GROUP BY error_code
+			 ORDER BY count(*) DESC, error_code ASC
+			 LIMIT 1
+		`, since).Scan(&topError)
+		if err != nil && err != sql.ErrNoRows {
+			return CostMetrics{}, fmt.Errorf("top error code: %w", err)
+		}
+		if topError.Valid {
+			metrics.TopErrorCode = &topError.String
+		}
+	}
+
+	return metrics, nil
+}
+
 func buildWhere(filters Filters) (string, []any) {
 	clauses := []string{"rl.deleted_at IS NULL"}
 	args := []any{}
