@@ -5,6 +5,7 @@
 - [x] Add goose/sqlc scaffold files for the Go backend.
 - [x] Implement health and dashboard auth session routes.
 - [x] Implement read-only accounts and dashboard overview routes.
+- [x] Add short-lived in-process caches for read-only dashboard data.
 - [x] Add package scripts for running the Go API without replacing Python yet.
 
 ## 2. Validation

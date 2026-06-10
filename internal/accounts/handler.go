@@ -4,12 +4,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/soju06/codex-lb/internal/cache"
 	"github.com/soju06/codex-lb/internal/platform"
 )
 
 type Handler struct {
-	repo Repository
+	repo    Repository
+	summary *cache.TTL[[]AccountSummary]
 }
 
 type UsageSummary struct {
@@ -54,7 +57,10 @@ type ListResponse struct {
 }
 
 func NewHandler(repo Repository) Handler {
-	return Handler{repo: repo}
+	return Handler{
+		repo:    repo,
+		summary: cache.NewTTL[[]AccountSummary](2 * time.Second),
+	}
 }
 
 func (h Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +73,9 @@ func (h Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h Handler) Summaries(r *http.Request) ([]AccountSummary, error) {
+	if cached, ok := h.summary.Get("accounts"); ok {
+		return cached, nil
+	}
 	ctx := r.Context()
 	accountRows, err := h.repo.List(ctx)
 	if err != nil {
@@ -128,6 +137,7 @@ func (h Handler) Summaries(r *http.Request) ([]AccountSummary, error) {
 		summary.CapacityCreditsSecondary, summary.RemainingCreditsSecondary = credits(s)
 		summaries = append(summaries, summary)
 	}
+	h.summary.Set("accounts", summaries)
 	return summaries, nil
 }
 

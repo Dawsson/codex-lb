@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/soju06/codex-lb/internal/accounts"
+	"github.com/soju06/codex-lb/internal/cache"
 )
 
 type Handler struct {
 	repo     Repository
 	accounts accounts.Handler
+	overview *cache.TTL[overviewResponse]
 }
 
 type timeframe struct {
@@ -87,11 +89,19 @@ type overviewWindows struct {
 }
 
 func NewHandler(repo Repository, accountHandler accounts.Handler) Handler {
-	return Handler{repo: repo, accounts: accountHandler}
+	return Handler{
+		repo:     repo,
+		accounts: accountHandler,
+		overview: cache.NewTTL[overviewResponse](2 * time.Second),
+	}
 }
 
 func (h Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	tf := resolveTimeframe(r.URL.Query().Get("timeframe"))
+	if cached, ok := h.overview.Get(tf.Key); ok {
+		writeJSON(w, http.StatusOK, cached)
+		return
+	}
 	since := time.Now().UTC().Add(-time.Duration(tf.WindowMinutes) * time.Minute)
 
 	accountSummaries, err := h.accounts.Summaries(r)
@@ -142,6 +152,7 @@ func (h Handler) Overview(w http.ResponseWriter, r *http.Request) {
 		DepletionSecondary: nil,
 		WeeklyCreditPace:   nil,
 	}
+	h.overview.Set(tf.Key, response)
 	writeJSON(w, http.StatusOK, response)
 }
 
