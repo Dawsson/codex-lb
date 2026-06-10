@@ -10,12 +10,14 @@ import (
 )
 
 type Config struct {
-	Host          string
-	Port          int
-	DatabasePath  string
-	RunMigrations bool
-	MigrationsDir string
-	AuthDisabled  bool
+	Host                   string
+	Port                   int
+	DatabasePath           string
+	EncryptionKeyPath      string
+	RunMigrations          bool
+	MigrationsDir          string
+	AuthDisabled           bool
+	ConversationArchiveDir string
 }
 
 func Load() (Config, error) {
@@ -32,14 +34,24 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	encryptionKeyPath, err := resolveEncryptionKeyPath(databasePath)
+	if err != nil {
+		return Config{}, err
+	}
+	conversationArchiveDir, err := resolveConversationArchiveDir(databasePath)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
-		Host:          getenvDefault("CODEX_LB_GO_HOST", "127.0.0.1"),
-		Port:          port,
-		DatabasePath:  databasePath,
-		RunMigrations: parseBool(os.Getenv("CODEX_LB_GO_RUN_MIGRATIONS")),
-		MigrationsDir: getenvDefault("CODEX_LB_GO_MIGRATIONS_DIR", "migrations"),
-		AuthDisabled:  parseBool(os.Getenv("CODEX_LB_GO_AUTH_DISABLED")),
+		Host:                   getenvDefault("CODEX_LB_GO_HOST", "127.0.0.1"),
+		Port:                   port,
+		DatabasePath:           databasePath,
+		EncryptionKeyPath:      encryptionKeyPath,
+		RunMigrations:          parseBool(os.Getenv("CODEX_LB_GO_RUN_MIGRATIONS")),
+		MigrationsDir:          getenvDefault("CODEX_LB_GO_MIGRATIONS_DIR", "migrations"),
+		AuthDisabled:           parseBool(os.Getenv("CODEX_LB_GO_AUTH_DISABLED")),
+		ConversationArchiveDir: conversationArchiveDir,
 	}, nil
 }
 
@@ -60,6 +72,20 @@ func resolveDatabasePath() (string, error) {
 		dataDir = filepath.Join(home, ".codex-lb")
 	}
 	return filepath.Join(dataDir, "store.db"), nil
+}
+
+func resolveConversationArchiveDir(databasePath string) (string, error) {
+	if raw := os.Getenv("CODEX_LB_CONVERSATION_ARCHIVE_DIR"); raw != "" {
+		return raw, nil
+	}
+	return filepath.Join(filepath.Dir(databasePath), "conversation-archive"), nil
+}
+
+func resolveEncryptionKeyPath(databasePath string) (string, error) {
+	if raw := os.Getenv("CODEX_LB_ENCRYPTION_KEY_FILE"); raw != "" {
+		return raw, nil
+	}
+	return filepath.Join(filepath.Dir(databasePath), "encryption.key"), nil
 }
 
 func sqlitePathFromURL(raw string) (string, error) {
