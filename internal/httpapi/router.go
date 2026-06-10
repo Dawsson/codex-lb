@@ -10,12 +10,15 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/soju06/codex-lb/internal/accounts"
 	"github.com/soju06/codex-lb/internal/auth"
+	"github.com/soju06/codex-lb/internal/config"
 	"github.com/soju06/codex-lb/internal/dashboard"
 	"github.com/soju06/codex-lb/internal/db"
 	"github.com/soju06/codex-lb/internal/health"
+	"github.com/soju06/codex-lb/internal/requestlogs"
+	"github.com/soju06/codex-lb/internal/runtime"
 )
 
-func NewRouter(store *db.Store, logger *slog.Logger) http.Handler {
+func NewRouter(store *db.Store, logger *slog.Logger, cfg config.Config) http.Handler {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
@@ -26,8 +29,9 @@ func NewRouter(store *db.Store, logger *slog.Logger) http.Handler {
 	accountRepo := accounts.NewRepository(store)
 	accountHandler := accounts.NewHandler(accountRepo)
 	dashboardHandler := dashboard.NewHandler(dashboard.NewRepository(store), accountHandler)
+	requestLogsHandler := requestlogs.NewHandler(requestlogs.NewRepository(store))
 	sessionStore := sessionManager()
-	authHandler := auth.NewHandler(auth.NewRepository(store), sessionStore)
+	authHandler := auth.NewHandler(auth.NewRepository(store), sessionStore, cfg.AuthDisabled)
 
 	router.Get("/health/live", healthHandler.Live)
 	router.Get("/health/ready", healthHandler.Ready)
@@ -43,8 +47,12 @@ func NewRouter(store *db.Store, logger *slog.Logger) http.Handler {
 
 		r.Group(func(protected chi.Router) {
 			protected.Use(authHandler.RequireSession)
+			protected.Get("/api/runtime/version", runtime.Version)
 			protected.Get("/api/accounts", accountHandler.List)
 			protected.Get("/api/dashboard/overview", dashboardHandler.Overview)
+			protected.Get("/api/dashboard/projections", dashboardHandler.Projections)
+			protected.Get("/api/request-logs", requestLogsHandler.List)
+			protected.Get("/api/request-logs/options", requestLogsHandler.Options)
 		})
 	})
 

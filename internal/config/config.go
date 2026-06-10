@@ -15,6 +15,7 @@ type Config struct {
 	DatabasePath  string
 	RunMigrations bool
 	MigrationsDir string
+	AuthDisabled  bool
 }
 
 func Load() (Config, error) {
@@ -38,6 +39,7 @@ func Load() (Config, error) {
 		DatabasePath:  databasePath,
 		RunMigrations: parseBool(os.Getenv("CODEX_LB_GO_RUN_MIGRATIONS")),
 		MigrationsDir: getenvDefault("CODEX_LB_GO_MIGRATIONS_DIR", "migrations"),
+		AuthDisabled:  parseBool(os.Getenv("CODEX_LB_GO_AUTH_DISABLED")),
 	}, nil
 }
 

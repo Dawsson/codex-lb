@@ -22,6 +22,7 @@ build/
 dist/
 app/static/
 deploy/helm/*/charts/
+tmp/
 
 # Node
 node_modules/

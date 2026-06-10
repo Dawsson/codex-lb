@@ -156,6 +156,14 @@ func (h Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (h Handler) Projections(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"depletionPrimary":   nil,
+		"depletionSecondary": nil,
+		"weeklyCreditPace":   nil,
+	})
+}
+
 func resolveTimeframe(key string) timeframe {
 	switch key {
 	case "1d":

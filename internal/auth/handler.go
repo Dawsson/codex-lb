@@ -12,8 +12,9 @@ import (
 const sessionAuthenticatedKey = "authenticated"
 
 type Handler struct {
-	repo     Repository
-	sessions *scs.SessionManager
+	repo         Repository
+	sessions     *scs.SessionManager
+	authDisabled bool
 }
 
 type SessionResponse struct {
@@ -36,8 +37,8 @@ type statusResponse struct {
 	Status string `json:"status"`
 }
 
-func NewHandler(repo Repository, sessions *scs.SessionManager) Handler {
-	return Handler{repo: repo, sessions: sessions}
+func NewHandler(repo Repository, sessions *scs.SessionManager, authDisabled bool) Handler {
+	return Handler{repo: repo, sessions: sessions, authDisabled: authDisabled}
 }
 
 func (h Handler) Session(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +97,7 @@ func (h Handler) RequireSession(next http.Handler) http.Handler {
 			writeError(w, http.StatusInternalServerError, "server_error", err.Error())
 			return
 		}
-		if settings.PasswordHash.Valid && !h.sessions.GetBool(r.Context(), sessionAuthenticatedKey) {
+		if !h.authDisabled && settings.PasswordHash.Valid && !h.sessions.GetBool(r.Context(), sessionAuthenticatedKey) {
 			writeError(w, http.StatusUnauthorized, "authentication_required", "Authentication is required")
 			return
 		}
@@ -110,7 +111,7 @@ func (h Handler) sessionResponse(r *http.Request) (SessionResponse, error) {
 		return SessionResponse{}, err
 	}
 	passwordRequired := settings.PasswordHash.Valid
-	authenticated := !passwordRequired || h.sessions.GetBool(r.Context(), sessionAuthenticatedKey)
+	authenticated := h.authDisabled || !passwordRequired || h.sessions.GetBool(r.Context(), sessionAuthenticatedKey)
 	totpRequired := false
 	if settings.TOTPRequiredOnLogin && !authenticated {
 		return SessionResponse{}, errors.New("totp cannot be required before password authentication")
@@ -122,10 +123,17 @@ func (h Handler) sessionResponse(r *http.Request) (SessionResponse, error) {
 		TOTPConfigured:            settings.TOTPConfigured,
 		BootstrapRequired:         false,
 		BootstrapTokenConfigured:  false,
-		AuthMode:                  "standard",
-		PasswordManagementEnabled: true,
-		PasswordSessionActive:     authenticated && passwordRequired,
+		AuthMode:                  authMode(h.authDisabled),
+		PasswordManagementEnabled: !h.authDisabled,
+		PasswordSessionActive:     authenticated && passwordRequired && !h.authDisabled,
 	}, nil
+}
+
+func authMode(disabled bool) string {
+	if disabled {
+		return "disabled"
+	}
+	return "standard"
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

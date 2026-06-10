@@ -50,7 +50,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              cfg.Addr(),
-		Handler:           httpapi.NewRouter(store, logger),
+		Handler:           httpapi.NewRouter(store, logger, cfg),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

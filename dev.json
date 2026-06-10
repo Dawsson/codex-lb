@@ -17,7 +17,7 @@
         "panes": [
           {
             "name": "api",
-            "command": "bun run dev:api:go",
+            "command": "CODEX_LB_GO_AUTH_DISABLED=1 CODEX_LB_GO_PORT=${DEV_API_PORT:-2455} $(go env GOPATH)/bin/air -c .air.toml",
             "position": "main",
             "services": ["api"]
           },
