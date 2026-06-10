@@ -1,6 +1,8 @@
 ## 1. Account selection / load balancing
 
-- [ ] Port `account_cache.py` (selection cache + invalidation).
+- [x] Port `account_cache.py` (selection cache + invalidation) as a generic
+      `AccountSelectionCache[T]`. The cached payload type (the Go equivalent
+      of `SelectionInputs`) lands with the load balancer port below.
 - [ ] Port `load_balancer.py` selection strategies (capacity_weighted,
       relative_availability_power/top_k, fill_first, single_account).
 - [ ] Port routing policy handling (normal/burn_first/preserve) and
