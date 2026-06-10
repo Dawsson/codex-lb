@@ -18,6 +18,7 @@ import (
 	"github.com/soju06/codex-lb/internal/firewall"
 	"github.com/soju06/codex-lb/internal/health"
 	"github.com/soju06/codex-lb/internal/models"
+	"github.com/soju06/codex-lb/internal/oauth"
 	"github.com/soju06/codex-lb/internal/quotaplanner"
 	"github.com/soju06/codex-lb/internal/reports"
 	"github.com/soju06/codex-lb/internal/requestlogs"
@@ -56,6 +57,8 @@ func NewRouter(store *db.Store, logger *slog.Logger, cfg config.Config) http.Han
 	reportsHandler := reports.NewHandler(reports.NewRepository(store))
 	sessionStore := sessionManager()
 	authHandler := auth.NewHandler(auth.NewRepository(store), sessionStore, cfg.AuthDisabled, encryptor)
+	oauthService := oauth.NewService(cfg, accountRepo, encryptor, accountHandler.InvalidateSummaryCache, logger)
+	oauthHandler := oauth.NewHandler(oauthService)
 
 	router.Get("/health/live", healthHandler.Live)
 	router.Get("/health/ready", healthHandler.Ready)
@@ -126,6 +129,11 @@ func NewRouter(store *db.Store, logger *slog.Logger, cfg config.Config) http.Han
 
 			protected.Get("/api/api-keys/{keyID}/trends", apiKeysHandler.Trends)
 			protected.Get("/api/api-keys/{keyID}/usage-7d", apiKeysHandler.Usage7Day)
+
+			protected.Post("/api/oauth/start", oauthHandler.Start)
+			protected.Get("/api/oauth/status", oauthHandler.Status)
+			protected.Post("/api/oauth/complete", oauthHandler.Complete)
+			protected.Post("/api/oauth/manual-callback", oauthHandler.ManualCallback)
 
 			protected.Get("/api/models", modelsHandler.List)
 

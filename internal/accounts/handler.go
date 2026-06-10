@@ -2,11 +2,12 @@ package accounts
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/soju06/codex-lb/internal/cache"
+	"github.com/soju06/codex-lb/internal/httputil"
 	"github.com/soju06/codex-lb/internal/platform"
 )
 
@@ -63,13 +64,47 @@ func NewHandler(repo Repository) Handler {
 	}
 }
 
+// InvalidateSummaryCache clears the cached account summary list. It is
+// called after writes that change account routing identity (e.g. OAuth
+// token persistence), mirroring
+// OauthService._invalidate_account_routing_caches.
+func (h Handler) InvalidateSummaryCache() {
+	h.summary.Clear()
+}
+
 func (h Handler) List(w http.ResponseWriter, r *http.Request) {
 	summaries, err := h.Summaries(r)
 	if err != nil {
-		writeError(w, err)
+		httputil.WriteServerError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, ListResponse{Accounts: summaries})
+	httputil.WriteJSON(w, http.StatusOK, ListResponse{Accounts: summaries})
+}
+
+func (h Handler) Trends(w http.ResponseWriter, r *http.Request) {
+	accountID := chi.URLParam(r, "accountID")
+	ctx := r.Context()
+	exists, err := h.repo.Exists(ctx, accountID)
+	if err != nil {
+		httputil.WriteServerError(w, err)
+		return
+	}
+	if !exists {
+		httputil.WriteError(w, http.StatusNotFound, "account_not_found", "Account not found")
+		return
+	}
+
+	since := time.Now().UTC().Add(-sparklineDays * 24 * time.Hour)
+	sinceEpoch := since.Unix()
+	bucketCount := (sparklineDays * 24 * 3600) / detailBucketSeconds
+	buckets, err := h.repo.TrendsByBucket(ctx, accountID, since, detailBucketSeconds)
+	if err != nil {
+		httputil.WriteServerError(w, err)
+		return
+	}
+	trends := BuildAccountTrends(buckets, sinceEpoch, detailBucketSeconds, bucketCount)
+	trends.AccountID = accountID
+	httputil.WriteJSON(w, http.StatusOK, trends)
 }
 
 func (h Handler) Summaries(r *http.Request) ([]AccountSummary, error) {
@@ -189,19 +224,4 @@ func nullBoolPtr(value sql.NullBool) *bool {
 
 func boolValuePtr(value bool) *bool {
 	return &value
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
-func writeError(w http.ResponseWriter, err error) {
-	writeJSON(w, http.StatusInternalServerError, map[string]any{
-		"error": map[string]string{
-			"code":    "server_error",
-			"message": err.Error(),
-		},
-	})
 }
