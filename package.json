@@ -7,6 +7,7 @@
     "dev": "if [ -n \"$DEV_WORKSPACE\" ]; then bun run dev:all; else dev up --cwd \"$PWD\"; fi",
     "dev:all": "bun run dev:api & bun run dev:web & wait",
     "dev:api": "uv run fastapi run app/main.py --reload --host 127.0.0.1 --port ${DEV_API_PORT:-2455}",
+    "dev:api:go": "go run ./cmd/codex-lb-go",
     "dev:web": "cd frontend && API_PROXY_TARGET=${API_PROXY_TARGET:-${DEV_API_URL:-http://127.0.0.1:${DEV_API_PORT:-2455}}} bun run dev:local -- --host 127.0.0.1 --port ${DEV_WEB_PORT:-5173}",
     "install:all": "uv sync && cd frontend && bun install"
   }
