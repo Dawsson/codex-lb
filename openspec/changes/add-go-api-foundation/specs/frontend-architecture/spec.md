@@ -43,3 +43,27 @@ cache MUST NOT replace SQLite as the durable source of truth.
 - **WHEN** the dashboard frontend repeatedly requests `GET /api/accounts`
 - **THEN** the Go API MAY reuse a cached account summary for a short interval
 - **AND** the next request after expiry MUST read from SQLite again.
+
+### Requirement: Go dashboard auth uses first-class session routes
+
+The Go API SHALL expose dashboard authentication through `/api/auth/session`,
+`/api/auth/login`, and `/api/auth/logout` using server-side session cookies.
+
+#### Scenario: Password login creates a server-side session
+
+- **WHEN** an operator posts a valid password to `POST /api/auth/login`
+- **THEN** the Go API verifies the password hash from the durable database
+- **AND** renews the session token before marking the session authenticated.
+
+#### Scenario: Protected dashboard reads require authentication
+
+- **WHEN** a password hash is configured
+- **AND** a request to a protected dashboard read route has no authenticated
+  session
+- **THEN** the Go API rejects the request with `401 authentication_required`.
+
+#### Scenario: Logout destroys the session
+
+- **WHEN** an operator posts to `POST /api/auth/logout`
+- **THEN** the Go API destroys the server-side session
+- **AND** subsequent protected dashboard reads require login again.

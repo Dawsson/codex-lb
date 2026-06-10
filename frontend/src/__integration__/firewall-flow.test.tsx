@@ -13,7 +13,7 @@ describe("firewall flow integration", () => {
     const entries: Array<{ ipAddress: string; createdAt: string }> = [];
 
     server.use(
-      http.get("/api/dashboard-auth/session", () =>
+      http.get("/api/auth/session", () =>
         HttpResponse.json({
           authenticated: true,
           passwordRequired: true,

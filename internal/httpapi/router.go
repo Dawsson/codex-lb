@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/soju06/codex-lb/internal/accounts"
@@ -25,14 +26,39 @@ func NewRouter(store *db.Store, logger *slog.Logger) http.Handler {
 	accountRepo := accounts.NewRepository(store)
 	accountHandler := accounts.NewHandler(accountRepo)
 	dashboardHandler := dashboard.NewHandler(dashboard.NewRepository(store), accountHandler)
+	sessionStore := sessionManager()
+	authHandler := auth.NewHandler(auth.NewRepository(store), sessionStore)
 
 	router.Get("/health/live", healthHandler.Live)
 	router.Get("/health/ready", healthHandler.Ready)
-	router.Get("/api/dashboard-auth/session", auth.Session)
-	router.Get("/api/accounts", accountHandler.List)
-	router.Get("/api/dashboard/overview", dashboardHandler.Overview)
+	router.Group(func(r chi.Router) {
+		r.Use(sessionStore.LoadAndSave)
+		r.Get("/api/auth/session", authHandler.Session)
+		r.Post("/api/auth/login", authHandler.Login)
+		r.Post("/api/auth/logout", authHandler.Logout)
+
+		r.Get("/api/dashboard-auth/session", authHandler.Session)
+		r.Post("/api/dashboard-auth/password/login", authHandler.Login)
+		r.Post("/api/dashboard-auth/logout", authHandler.Logout)
+
+		r.Group(func(protected chi.Router) {
+			protected.Use(authHandler.RequireSession)
+			protected.Get("/api/accounts", accountHandler.List)
+			protected.Get("/api/dashboard/overview", dashboardHandler.Overview)
+		})
+	})
 
 	return router
+}
+
+func sessionManager() *scs.SessionManager {
+	manager := scs.New()
+	manager.Cookie.Name = "codex_lb_go_session"
+	manager.Cookie.HttpOnly = true
+	manager.Cookie.SameSite = http.SameSiteLaxMode
+	manager.Lifetime = 12 * time.Hour
+	manager.IdleTimeout = 2 * time.Hour
+	return manager
 }
 
 func accessLog(logger *slog.Logger) func(http.Handler) http.Handler {

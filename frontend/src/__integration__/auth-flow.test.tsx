@@ -12,7 +12,7 @@ describe("auth flow integration", () => {
     const user = userEvent.setup({ delay: null });
 
     server.use(
-      http.get("/api/dashboard-auth/session", () =>
+      http.get("/api/auth/session", () =>
         HttpResponse.json({
           authenticated: false,
           passwordRequired: true,
@@ -22,7 +22,7 @@ describe("auth flow integration", () => {
           passwordManagementEnabled: true,
         }),
       ),
-      http.post("/api/dashboard-auth/password/login", () =>
+      http.post("/api/auth/login", () =>
         HttpResponse.json({
           authenticated: false,
           passwordRequired: true,
@@ -32,7 +32,7 @@ describe("auth flow integration", () => {
           passwordManagementEnabled: true,
         }),
       ),
-      http.post("/api/dashboard-auth/totp/verify", () =>
+      http.post("/api/auth/totp/verify", () =>
         HttpResponse.json({
           authenticated: true,
           passwordRequired: true,

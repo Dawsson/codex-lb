@@ -11,7 +11,7 @@ import {
   TotpVerifyRequestSchema,
 } from "@/features/auth/schemas";
 
-const AUTH_BASE_PATH = "/api/dashboard-auth";
+const AUTH_BASE_PATH = "/api/auth";
 
 export function getAuthSession() {
   return get(`${AUTH_BASE_PATH}/session`, AuthSessionSchema);
@@ -24,7 +24,7 @@ export function setupPassword(payload: PasswordSetupRequest) {
 }
 
 export function loginPassword(payload: LoginRequest) {
-  return post(`${AUTH_BASE_PATH}/password/login`, AuthSessionSchema, {
+  return post(`${AUTH_BASE_PATH}/login`, AuthSessionSchema, {
     body: payload,
   });
 }

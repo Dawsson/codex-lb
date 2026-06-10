@@ -1253,11 +1253,11 @@ export const handlers = [
     return HttpResponse.json({ deletedCount });
   }),
 
-  http.get("/api/dashboard-auth/session", () => {
+  http.get("/api/auth/session", () => {
     return HttpResponse.json(state.authSession);
   }),
 
-  http.post("/api/dashboard-auth/password/setup", () => {
+  http.post("/api/auth/password/setup", () => {
     state.authSession = createDashboardAuthSession({
       authenticated: true,
       passwordRequired: true,
@@ -1267,7 +1267,7 @@ export const handlers = [
     return HttpResponse.json(state.authSession);
   }),
 
-  http.post("/api/dashboard-auth/password/login", () => {
+  http.post("/api/auth/login", () => {
     state.authSession = createDashboardAuthSession({
       ...state.authSession,
       authenticated: !state.authSession.totpRequiredOnLogin,
@@ -1275,11 +1275,11 @@ export const handlers = [
     return HttpResponse.json(state.authSession);
   }),
 
-  http.post("/api/dashboard-auth/password/change", () => {
+  http.post("/api/auth/password/change", () => {
     return HttpResponse.json({ status: "ok" });
   }),
 
-  http.delete("/api/dashboard-auth/password", () => {
+  http.delete("/api/auth/password", () => {
     state.authSession = createDashboardAuthSession({
       authenticated: false,
       passwordRequired: false,
@@ -1289,7 +1289,7 @@ export const handlers = [
     return HttpResponse.json({ status: "ok" });
   }),
 
-  http.post("/api/dashboard-auth/totp/setup/start", () => {
+  http.post("/api/auth/totp/setup/start", () => {
     return HttpResponse.json({
       secret: "JBSWY3DPEHPK3PXP",
       otpauthUri: "otpauth://totp/codex-lb?secret=JBSWY3DPEHPK3PXP",
@@ -1297,7 +1297,7 @@ export const handlers = [
     });
   }),
 
-  http.post("/api/dashboard-auth/totp/setup/confirm", () => {
+  http.post("/api/auth/totp/setup/confirm", () => {
     state.authSession = createDashboardAuthSession({
       ...state.authSession,
       totpConfigured: true,
@@ -1306,7 +1306,7 @@ export const handlers = [
     return HttpResponse.json({ status: "ok" });
   }),
 
-  http.post("/api/dashboard-auth/totp/verify", () => {
+  http.post("/api/auth/totp/verify", () => {
     state.authSession = createDashboardAuthSession({
       ...state.authSession,
       authenticated: true,
@@ -1314,7 +1314,7 @@ export const handlers = [
     return HttpResponse.json(state.authSession);
   }),
 
-  http.post("/api/dashboard-auth/totp/disable", () => {
+  http.post("/api/auth/totp/disable", () => {
     state.authSession = createDashboardAuthSession({
       ...state.authSession,
       totpConfigured: false,
@@ -1324,7 +1324,7 @@ export const handlers = [
     return HttpResponse.json({ status: "ok" });
   }),
 
-  http.post("/api/dashboard-auth/logout", () => {
+  http.post("/api/auth/logout", () => {
     state.authSession = createDashboardAuthSession({
       ...state.authSession,
       authenticated: false,
