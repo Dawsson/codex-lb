@@ -2,10 +2,11 @@
 
 ### Requirement: token_expired at the refresh boundary deactivates the account
 
-When the OAuth refresh endpoint fails with a credential-token error code such as
-`token_expired`, `invalid_grant`, `refresh_token_expired`,
-`refresh_token_reused`, or `refresh_token_invalidated`, the system MUST treat it
-as a permanent refresh-token/session failure. The affected account MUST be
+The usage refresh and auth refresh paths SHALL treat OAuth refresh endpoint
+failures with credential-token error codes such as `token_expired`,
+`invalid_grant`, `refresh_token_expired`, `refresh_token_reused`, or
+`refresh_token_invalidated` as permanent refresh-token/session failures.
+The affected account MUST be
 marked `reauth_required` and removed from the routing pool until it is
 re-authenticated.
 

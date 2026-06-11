@@ -1,0 +1,6 @@
+- [x] 1. Add Go chat tool validation requirements.
+- [x] 2. Port tool type alias normalization for `tools` and `tool_choice`.
+- [x] 3. Reject Responses-only builtin tools for message-shaped chat payloads.
+- [x] 4. Preserve builtin tools for Responses-shaped chat payloads.
+- [x] 5. Add focused tests for rejection, normalization, and preservation.
+- [x] 6. Validate focused proxy tests, Go build/tests, and strict OpenSpec.

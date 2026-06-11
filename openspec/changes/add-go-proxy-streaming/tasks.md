@@ -1,24 +1,33 @@
 ## 1. SSE primitives
 
-- [ ] Port `format_sse_event`, `inject_sse_keepalives`,
+- [x] Port `format_sse_event`, `inject_sse_keepalives`,
       `parse_sse_data_json`, `CODEX_KEEPALIVE_FRAME`/`SSE_KEEPALIVE_FRAME`.
 
 ## 2. Streaming chat completions
 
-- [ ] `POST /v1/chat/completions` streaming path (SSE response).
-- [ ] Stream-level error handling and terminal event detection.
+- [x] `POST /v1/chat/completions` streaming path (SSE response).
+- [x] Stream-level error handling and terminal event detection.
 
 ## 3. Responses (Codex) endpoints
 
-- [ ] `POST /backend-api/codex/responses/compact`
-- [ ] WebSocket `/backend-api/codex/responses`
-- [ ] WebSocket `/v1/responses`
-- [ ] Previous-response-not-found recovery handling.
+- [x] `POST /backend-api/codex/responses/compact`
+- [x] `POST /backend-api/codex/responses` (SSE)
+- [x] WebSocket `/backend-api/codex/responses`
+- [x] WebSocket `/v1/responses`
+- [x] `POST /v1/responses` (SSE)
+- [x] `POST /v1/responses/compact`
+  - [x] Base compact payload mapping, account selection, upstream compact call,
+        request logging, and API-key reservation settlement.
+- [ ] Previous-response-not-found recovery handling (basic in-memory owner index only).
 
 ## 4. Warmup endpoints
 
-- [ ] `POST /v1/warmup`
-- [ ] `POST /v1/warmup/{mode}`
+- [x] `POST /v1/warmup`
+- [x] `POST /v1/warmup/{mode}`
+  - [x] Mode validation for `normal`, `strict`, and `force`.
+  - [x] Python-compatible `WarmupResponse` submitted/skipped/failed schema.
+  - [x] Active account fan-out with API-key account-scope filtering,
+        primary-window eligibility, request logging, and reservation settlement.
 
 ## 5. Bridge / ring membership
 
@@ -33,6 +42,7 @@
 
 ## 6. Validation
 
-- [ ] `go test ./...` including partial-failure stream tests (mid-stream
-      upstream error, client disconnect).
-- [ ] `openspec validate add-go-proxy-streaming --strict`
+- [x] `go test ./...` including stream unit tests (SSE keepalive, chat chunks,
+      previous-response index, turn-state).
+- [ ] Manual smoke test with Codex CLI against Go API.
+- [x] `openspec validate add-go-proxy-streaming --strict`

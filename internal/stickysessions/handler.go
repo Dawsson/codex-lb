@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/soju06/codex-lb/internal/audit"
 	"github.com/soju06/codex-lb/internal/httputil"
 	"github.com/soju06/codex-lb/internal/platform"
 )
 
 type Handler struct {
-	repo Repository
+	repo      Repository
+	auditRepo *audit.Repository
 }
 
 type entryResponse struct {
@@ -77,6 +79,11 @@ func NewHandler(repo Repository) Handler {
 	return Handler{repo: repo}
 }
 
+func (h Handler) WithAudit(repo audit.Repository) Handler {
+	h.auditRepo = &repo
+	return h
+}
+
 func (h Handler) List(w http.ResponseWriter, r *http.Request) {
 	params := parseListParams(r)
 	ttl, err := h.repo.CacheAffinityMaxAgeSeconds(r.Context())
@@ -128,6 +135,7 @@ func (h Handler) DeleteOne(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "not_found", "Sticky session not found")
 		return
 	}
+	h.audit(r, "sticky_session_deleted", map[string]any{"key": key, "kind": kind})
 	httputil.WriteJSON(w, http.StatusOK, deleteResponse{
 		DeletedCount: 1,
 		Deleted:      []identifierPayload{{Key: key, Kind: kind}},
@@ -171,6 +179,7 @@ func (h Handler) DeleteMany(w http.ResponseWriter, r *http.Request) {
 			failed = append(failed, deleteFailure{Key: target[0], Kind: target[1], Reason: "not_found"})
 		}
 	}
+	h.audit(r, "sticky_sessions_deleted", map[string]any{"deleted_count": len(deletedPayload)})
 	httputil.WriteJSON(w, http.StatusOK, deleteResponse{
 		DeletedCount: len(deletedPayload),
 		Deleted:      httputil.EmptySlice(deletedPayload),
@@ -209,6 +218,12 @@ func (h Handler) DeleteFiltered(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteServerError(w, err)
 		return
 	}
+	h.audit(r, "sticky_sessions_delete_filtered", map[string]any{
+		"deleted_count": len(deleted),
+		"stale_only":    payload.StaleOnly,
+		"account_query": payload.AccountQuery,
+		"key_query":     payload.KeyQuery,
+	})
 	httputil.WriteJSON(w, http.StatusOK, deleteFilteredResponse{DeletedCount: len(deleted)})
 }
 
@@ -232,7 +247,12 @@ func (h Handler) Purge(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteServerError(w, err)
 		return
 	}
+	h.audit(r, "sticky_sessions_purged", map[string]any{"deleted_count": count, "stale_only": payload.StaleOnly})
 	httputil.WriteJSON(w, http.StatusOK, purgeResponse{DeletedCount: count})
+}
+
+func (h Handler) audit(r *http.Request, action string, details map[string]any) {
+	audit.LogRequest(h.auditRepo, r, action, details)
 }
 
 func parseListParams(r *http.Request) ListParams {

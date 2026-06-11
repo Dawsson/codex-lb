@@ -7,17 +7,45 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
-	Host                   string
-	Port                   int
-	DatabasePath           string
-	EncryptionKeyPath      string
-	RunMigrations          bool
-	MigrationsDir          string
-	AuthDisabled           bool
-	ConversationArchiveDir string
+	Host                       string
+	Port                       int
+	DatabasePath               string
+	EncryptionKeyPath          string
+	RunMigrations              bool
+	MigrationsDir              string
+	AuthDisabled               bool
+	DashboardBootstrapToken    string
+	DashboardDistDir           string
+	ConversationArchiveDir     string
+	UsageRefreshEnabled        bool
+	UsageRefreshInterval       time.Duration
+	UsageFetchTimeout          time.Duration
+	UsageFetchMaxRetries       int
+	APIKeyLimitResetEnabled    bool
+	APIKeyLimitResetInterval   time.Duration
+	APIKeyReservationStaleAge  time.Duration
+	CacheInvalidationEnabled   bool
+	CacheInvalidationInterval  time.Duration
+	StickyCleanupEnabled       bool
+	StickyCleanupInterval      time.Duration
+	ModelRefreshEnabled        bool
+	ModelRefreshInterval       time.Duration
+	ModelRegistryClientVersion string
+	AuthGuardianEnabled        bool
+	AuthGuardianInterval       time.Duration
+	AuthGuardianMaxRefreshAge  time.Duration
+	AuthGuardianBatchSize      int
+	AuthGuardianConcurrency    int
+	QuotaPlannerEnabled        bool
+	QuotaPlannerInterval       time.Duration
+	UpstreamBaseURL            string
+	FirewallTrustProxyHeaders  bool
+	FirewallTrustedProxyCIDRs  []string
+	FirewallIPCacheTTL         time.Duration
 
 	OAuthAuthBaseURL    string
 	OAuthClientID       string
@@ -68,16 +96,99 @@ func Load() (Config, error) {
 		}
 		oauthTimeoutSeconds = parsed
 	}
+	usageRefreshIntervalSeconds, err := parsePositiveIntEnv("CODEX_LB_USAGE_REFRESH_INTERVAL_SECONDS", 60)
+	if err != nil {
+		return Config{}, err
+	}
+	usageFetchTimeoutSeconds, err := parsePositiveIntEnv("CODEX_LB_USAGE_FETCH_TIMEOUT_SECONDS", 30)
+	if err != nil {
+		return Config{}, err
+	}
+	usageFetchMaxRetries, err := parseNonNegativeIntEnv("CODEX_LB_USAGE_FETCH_MAX_RETRIES", 2)
+	if err != nil {
+		return Config{}, err
+	}
+	apiKeyLimitResetIntervalSeconds, err := parsePositiveIntEnv("CODEX_LB_API_KEY_LIMIT_RESET_INTERVAL_SECONDS", 3600)
+	if err != nil {
+		return Config{}, err
+	}
+	apiKeyReservationStaleAgeSeconds, err := parsePositiveIntEnv("CODEX_LB_API_KEY_USAGE_RESERVATION_STALE_SECONDS", 21600)
+	if err != nil {
+		return Config{}, err
+	}
+	cacheInvalidationIntervalSeconds, err := parsePositiveIntEnv("CODEX_LB_CACHE_INVALIDATION_POLL_INTERVAL_SECONDS", 1)
+	if err != nil {
+		return Config{}, err
+	}
+	stickyCleanupIntervalSeconds, err := parsePositiveIntEnv("CODEX_LB_STICKY_SESSION_CLEANUP_INTERVAL_SECONDS", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	modelRefreshIntervalSeconds, err := parsePositiveIntEnv("CODEX_LB_MODEL_REFRESH_INTERVAL_SECONDS", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	authGuardianIntervalSeconds, err := parsePositiveIntEnv("CODEX_LB_AUTH_GUARDIAN_INTERVAL_SECONDS", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	authGuardianMaxAgeSeconds, err := parsePositiveIntEnv("CODEX_LB_AUTH_GUARDIAN_MAX_REFRESH_AGE_SECONDS", 7*24*60*60)
+	if err != nil {
+		return Config{}, err
+	}
+	authGuardianBatchSize, err := parsePositiveIntEnv("CODEX_LB_AUTH_GUARDIAN_BATCH_SIZE", 25)
+	if err != nil {
+		return Config{}, err
+	}
+	authGuardianConcurrency, err := parsePositiveIntEnv("CODEX_LB_AUTH_GUARDIAN_CONCURRENCY", 4)
+	if err != nil {
+		return Config{}, err
+	}
+	quotaPlannerIntervalSeconds, err := parsePositiveIntEnv("CODEX_LB_QUOTA_PLANNER_TICK_SECONDS", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	firewallCacheTTLSeconds, err := parsePositiveIntEnv("CODEX_LB_FIREWALL_IP_CACHE_TTL_SECONDS", 30)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
-		Host:                   getenvDefault("CODEX_LB_GO_HOST", "127.0.0.1"),
-		Port:                   port,
-		DatabasePath:           databasePath,
-		EncryptionKeyPath:      encryptionKeyPath,
-		RunMigrations:          parseBool(os.Getenv("CODEX_LB_GO_RUN_MIGRATIONS")),
-		MigrationsDir:          getenvDefault("CODEX_LB_GO_MIGRATIONS_DIR", "migrations"),
-		AuthDisabled:           parseBool(os.Getenv("CODEX_LB_GO_AUTH_DISABLED")),
-		ConversationArchiveDir: conversationArchiveDir,
+		Host:                       getenvDefault("CODEX_LB_GO_HOST", "127.0.0.1"),
+		Port:                       port,
+		DatabasePath:               databasePath,
+		EncryptionKeyPath:          encryptionKeyPath,
+		RunMigrations:              parseBool(os.Getenv("CODEX_LB_GO_RUN_MIGRATIONS")),
+		MigrationsDir:              getenvDefault("CODEX_LB_GO_MIGRATIONS_DIR", "migrations"),
+		AuthDisabled:               parseBool(os.Getenv("CODEX_LB_GO_AUTH_DISABLED")),
+		DashboardBootstrapToken:    strings.TrimSpace(os.Getenv("CODEX_LB_DASHBOARD_BOOTSTRAP_TOKEN")),
+		DashboardDistDir:           strings.TrimSpace(os.Getenv("CODEX_LB_DASHBOARD_DIST_DIR")),
+		ConversationArchiveDir:     conversationArchiveDir,
+		UsageRefreshEnabled:        parseBoolDefault(os.Getenv("CODEX_LB_USAGE_REFRESH_ENABLED"), true),
+		UsageRefreshInterval:       time.Duration(usageRefreshIntervalSeconds) * time.Second,
+		UsageFetchTimeout:          time.Duration(usageFetchTimeoutSeconds) * time.Second,
+		UsageFetchMaxRetries:       usageFetchMaxRetries,
+		APIKeyLimitResetEnabled:    parseBoolDefault(os.Getenv("CODEX_LB_API_KEY_LIMIT_RESET_ENABLED"), true),
+		APIKeyLimitResetInterval:   time.Duration(apiKeyLimitResetIntervalSeconds) * time.Second,
+		APIKeyReservationStaleAge:  time.Duration(apiKeyReservationStaleAgeSeconds) * time.Second,
+		CacheInvalidationEnabled:   parseBoolDefault(os.Getenv("CODEX_LB_CACHE_INVALIDATION_ENABLED"), true),
+		CacheInvalidationInterval:  time.Duration(cacheInvalidationIntervalSeconds) * time.Second,
+		StickyCleanupEnabled:       parseBoolDefault(os.Getenv("CODEX_LB_STICKY_SESSION_CLEANUP_ENABLED"), true),
+		StickyCleanupInterval:      time.Duration(stickyCleanupIntervalSeconds) * time.Second,
+		ModelRefreshEnabled:        parseBoolDefault(os.Getenv("CODEX_LB_MODEL_REFRESH_ENABLED"), true),
+		ModelRefreshInterval:       time.Duration(modelRefreshIntervalSeconds) * time.Second,
+		ModelRegistryClientVersion: getenvDefault("CODEX_LB_MODEL_REGISTRY_CLIENT_VERSION", "0.101.0"),
+		AuthGuardianEnabled:        parseBoolDefault(os.Getenv("CODEX_LB_AUTH_GUARDIAN_ENABLED"), true),
+		AuthGuardianInterval:       time.Duration(authGuardianIntervalSeconds) * time.Second,
+		AuthGuardianMaxRefreshAge:  time.Duration(authGuardianMaxAgeSeconds) * time.Second,
+		AuthGuardianBatchSize:      authGuardianBatchSize,
+		AuthGuardianConcurrency:    authGuardianConcurrency,
+		QuotaPlannerEnabled:        parseBoolDefault(os.Getenv("CODEX_LB_QUOTA_PLANNER_SCHEDULER_ENABLED"), true),
+		QuotaPlannerInterval:       time.Duration(quotaPlannerIntervalSeconds) * time.Second,
+		UpstreamBaseURL:            getenvDefault("CODEX_LB_UPSTREAM_BASE_URL", "https://chatgpt.com/backend-api"),
+		FirewallTrustProxyHeaders:  parseBool(os.Getenv("CODEX_LB_FIREWALL_TRUST_PROXY_HEADERS")),
+		FirewallTrustedProxyCIDRs:  splitCSV(os.Getenv("CODEX_LB_FIREWALL_TRUSTED_PROXY_CIDRS")),
+		FirewallIPCacheTTL:         time.Duration(firewallCacheTTLSeconds) * time.Second,
 
 		OAuthAuthBaseURL:    getenvDefault("CODEX_LB_AUTH_BASE_URL", "https://auth.openai.com"),
 		OAuthClientID:       getenvDefault("CODEX_LB_OAUTH_CLIENT_ID", "app_EMoamEEZ73f0CkXaXp7hrann"),
@@ -88,6 +199,18 @@ func Load() (Config, error) {
 		OAuthCallbackHost:   getenvDefault("CODEX_LB_OAUTH_CALLBACK_HOST", "127.0.0.1"),
 		OAuthCallbackPort:   oauthCallbackPort,
 	}, nil
+}
+
+func splitCSV(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 func (c Config) Addr() string {
@@ -150,4 +273,35 @@ func parseBool(raw string) bool {
 	default:
 		return false
 	}
+}
+
+func parseBoolDefault(raw string, fallback bool) bool {
+	if strings.TrimSpace(raw) == "" {
+		return fallback
+	}
+	return parseBool(raw)
+}
+
+func parsePositiveIntEnv(key string, fallback int) (int, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("invalid %s: %q", key, raw)
+	}
+	return parsed, nil
+}
+
+func parseNonNegativeIntEnv(key string, fallback int) (int, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("invalid %s: %q", key, raw)
+	}
+	return parsed, nil
 }

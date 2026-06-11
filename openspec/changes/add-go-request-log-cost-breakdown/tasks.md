@@ -1,0 +1,4 @@
+- [x] 1. Add Go request-log cost breakdown requirement.
+- [x] 2. Port pricing-based request-log cost breakdown mapping.
+- [x] 3. Add tests for full, persisted-total mismatch, reasoning-token fallback, and partial legacy rows.
+- [x] 4. Validate focused Go tests and strict OpenSpec.

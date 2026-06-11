@@ -1,11 +1,14 @@
 package firewall
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/soju06/codex-lb/internal/audit"
+	"github.com/soju06/codex-lb/internal/cacheinvalidation"
 	"github.com/soju06/codex-lb/internal/httputil"
 )
 
@@ -15,7 +18,14 @@ var (
 )
 
 type Handler struct {
-	repo Repository
+	repo      Repository
+	firewall  *Firewall
+	bumper    cacheBumper
+	auditRepo *audit.Repository
+}
+
+type cacheBumper interface {
+	Bump(ctx context.Context, namespace string) error
 }
 
 type ipEntryResponse struct {
@@ -36,8 +46,18 @@ type deleteResponse struct {
 	Status string `json:"status"`
 }
 
-func NewHandler(repo Repository) Handler {
-	return Handler{repo: repo}
+func NewHandler(repo Repository, firewall *Firewall, bumpers ...cacheBumper) Handler {
+	var bumper cacheBumper
+	if len(bumpers) > 0 {
+		bumper = bumpers[0]
+	}
+	fw := firewall
+	return Handler{repo: repo, firewall: fw, bumper: bumper}
+}
+
+func (h Handler) WithAudit(repo audit.Repository) Handler {
+	h.auditRepo = &repo
+	return h
 }
 
 func (h Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +101,9 @@ func (h Handler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	h.invalidateCache()
+	h.bumpInvalidation(r.Context())
+	h.audit(r, "firewall_ip_created", map[string]any{"ip_address": row.IPAddress})
 	httputil.WriteJSON(w, http.StatusOK, ipEntryResponse{
 		IPAddress: row.IPAddress,
 		CreatedAt: formatCreatedAt(row.CreatedAt),
@@ -102,5 +125,24 @@ func (h Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "ip_not_found", "IP address not found")
 		return
 	}
+	h.invalidateCache()
+	h.bumpInvalidation(r.Context())
+	h.audit(r, "firewall_ip_deleted", map[string]any{"ip_address": ipAddress})
 	httputil.WriteJSON(w, http.StatusOK, deleteResponse{Status: "deleted"})
+}
+
+func (h Handler) invalidateCache() {
+	if h.firewall != nil {
+		h.firewall.InvalidateCache()
+	}
+}
+
+func (h Handler) bumpInvalidation(ctx context.Context) {
+	if h.bumper != nil {
+		_ = h.bumper.Bump(ctx, cacheinvalidation.NamespaceFirewall)
+	}
+}
+
+func (h Handler) audit(r *http.Request, action string, details map[string]any) {
+	audit.LogRequest(h.auditRepo, r, action, details)
 }

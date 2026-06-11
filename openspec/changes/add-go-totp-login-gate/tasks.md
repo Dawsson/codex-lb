@@ -1,0 +1,5 @@
+- [x] 1. Add Go TOTP login-gate requirements.
+- [x] 2. Split Go session state into password-verified and TOTP-verified flags.
+- [x] 3. Update session, protected route, password-management, and TOTP verify behavior.
+- [x] 4. Add focused Go tests for password-only pending TOTP, TOTP verification, and gated protected routes.
+- [x] 5. Validate focused auth tests, Go build/tests, and strict OpenSpec.

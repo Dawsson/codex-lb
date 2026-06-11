@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/soju06/codex-lb/internal/db"
 	"github.com/soju06/codex-lb/internal/httputil"
 )
@@ -37,18 +38,18 @@ type Settings struct {
 }
 
 type Decision struct {
-	ID             string
-	CreatedAt      sql.NullString
-	Mode           string
-	AccountID      sql.NullString
-	Action         string
-	ScheduledAt    sql.NullString
-	ExecutedAt     sql.NullString
-	Score          float64
-	Reason         sql.NullString
+	ID              string
+	CreatedAt       sql.NullString
+	Mode            string
+	AccountID       sql.NullString
+	Action          string
+	ScheduledAt     sql.NullString
+	ExecutedAt      sql.NullString
+	Score           float64
+	Reason          sql.NullString
 	StateBeforeJSON sql.NullString
-	Status         string
-	IdempotencyKey string
+	Status          string
+	IdempotencyKey  string
 }
 
 type ForecastSlot struct {
@@ -59,20 +60,24 @@ type ForecastSlot struct {
 }
 
 type Forecast struct {
-	GeneratedAt       string
-	HorizonHours      int
-	SlotSeconds       int
-	TotalDemandUnits  float64
-	PeakSlotStart     *string
-	PeakDemandUnits   float64
-	Slots             []ForecastSlot
-	SimulationLoss    float64
-	SimulationUnmet   float64
-	SimulationWasted  float64
-	SimulationCold    float64
-	SimulationSync    float64
+	GeneratedAt        string
+	HorizonHours       int
+	SlotSeconds        int
+	TotalDemandUnits   float64
+	PeakSlotStart      *string
+	PeakDemandUnits    float64
+	Slots              []ForecastSlot
+	SimulationLoss     float64
+	SimulationUnmet    float64
+	SimulationWasted   float64
+	SimulationCold     float64
+	SimulationSync     float64
 	SimulationForecast float64
-	SimulationServed  float64
+	SimulationServed   float64
+}
+
+type decisionScanner interface {
+	Scan(dest ...any) error
 }
 
 func NewRepository(store *db.Store) Repository {
@@ -148,17 +153,175 @@ func (r Repository) RecentDecisions(ctx context.Context, limit int) ([]Decision,
 
 	var decisions []Decision
 	for rows.Next() {
-		var decision Decision
-		if err := rows.Scan(
-			&decision.ID, &decision.CreatedAt, &decision.Mode, &decision.AccountID, &decision.Action,
-			&decision.ScheduledAt, &decision.ExecutedAt, &decision.Score, &decision.Reason,
-			&decision.StateBeforeJSON, &decision.Status, &decision.IdempotencyKey,
-		); err != nil {
+		decision, err := scanDecision(rows)
+		if err != nil {
 			return nil, err
 		}
 		decisions = append(decisions, decision)
 	}
 	return httputil.EmptySlice(decisions), rows.Err()
+}
+
+func (r Repository) GetDecision(ctx context.Context, decisionID string) (*Decision, error) {
+	row := r.store.DB().QueryRowContext(ctx, `
+		SELECT id, created_at, mode, account_id, action, scheduled_at, executed_at,
+		       score, reason, state_before_json, status, idempotency_key
+		  FROM quota_planner_decisions
+		 WHERE id = ?
+	`, decisionID)
+	decision, err := scanDecision(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &decision, nil
+}
+
+func (r Repository) DuePlannedWarmups(ctx context.Context, now time.Time, limit int) ([]Decision, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := r.store.DB().QueryContext(ctx, `
+		SELECT id, created_at, mode, account_id, action, scheduled_at, executed_at,
+		       score, reason, state_before_json, status, idempotency_key
+		  FROM quota_planner_decisions
+		 WHERE status = 'planned'
+		   AND action = 'warmup'
+		   AND account_id IS NOT NULL
+		   AND (scheduled_at IS NULL OR scheduled_at <= ?)
+		 ORDER BY scheduled_at ASC, created_at ASC
+		 LIMIT ?
+	`, now.UTC().Format("2006-01-02 15:04:05"), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list due quota planner warmups: %w", err)
+	}
+	defer rows.Close()
+	var decisions []Decision
+	for rows.Next() {
+		decision, err := scanDecision(rows)
+		if err != nil {
+			return nil, err
+		}
+		decisions = append(decisions, decision)
+	}
+	return httputil.EmptySlice(decisions), rows.Err()
+}
+
+func (r Repository) HasDecisionWithIdempotencyKey(ctx context.Context, key string) (bool, error) {
+	var count int
+	if err := r.store.DB().QueryRowContext(ctx, `
+		SELECT count(*) FROM quota_planner_decisions WHERE idempotency_key = ?
+	`, key).Scan(&count); err != nil {
+		return false, fmt.Errorf("check quota planner decision idempotency: %w", err)
+	}
+	return count > 0, nil
+}
+
+type LogDecisionParams struct {
+	Mode           string
+	Action         string
+	AccountID      sql.NullString
+	ScheduledAt    string
+	Score          float64
+	Reason         sql.NullString
+	Status         string
+	IdempotencyKey string
+}
+
+func (r Repository) LogDecision(ctx context.Context, params LogDecisionParams) (Decision, error) {
+	id := uuid.NewString()
+	if params.Status == "" {
+		params.Status = "planned"
+	}
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	_, err := r.store.DB().ExecContext(ctx, `
+		INSERT INTO quota_planner_decisions (
+			id, created_at, mode, account_id, action, scheduled_at, score, reason, status, idempotency_key
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(idempotency_key) DO NOTHING
+	`, id, now, params.Mode, nullString(params.AccountID), params.Action, nullableStringValue(params.ScheduledAt),
+		params.Score, nullString(params.Reason), params.Status, params.IdempotencyKey)
+	if err != nil {
+		return Decision{}, fmt.Errorf("log quota planner decision: %w", err)
+	}
+	row := r.store.DB().QueryRowContext(ctx, `
+		SELECT id, created_at, mode, account_id, action, scheduled_at, executed_at,
+		       score, reason, state_before_json, status, idempotency_key
+		  FROM quota_planner_decisions
+		 WHERE id = ? OR idempotency_key = ?
+		 ORDER BY created_at DESC
+		 LIMIT 1
+	`, id, params.IdempotencyKey)
+	decision, err := scanDecision(row)
+	if err != nil {
+		return Decision{}, err
+	}
+	return decision, nil
+}
+
+func (r Repository) UpdateDecisionStatus(ctx context.Context, decisionID, status, reason string, executedAt sql.NullString, expectedStatuses ...string) (*Decision, bool, error) {
+	args := []any{status, reason, nullString(executedAt), decisionID}
+	where := "id = ?"
+	if len(expectedStatuses) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(expectedStatuses)), ",")
+		where += " AND status IN (" + placeholders + ")"
+		for _, expected := range expectedStatuses {
+			args = append(args, expected)
+		}
+	}
+	result, err := r.store.DB().ExecContext(ctx, `
+		UPDATE quota_planner_decisions
+		   SET status = ?, reason = ?, executed_at = COALESCE(?, executed_at)
+		 WHERE `+where, args...)
+	if err != nil {
+		return nil, false, fmt.Errorf("update quota planner decision status: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, false, err
+	}
+	decision, err := r.GetDecision(ctx, decisionID)
+	if err != nil {
+		return nil, false, err
+	}
+	return decision, rows > 0, nil
+}
+
+func scanDecision(row decisionScanner) (Decision, error) {
+	var decision Decision
+	if err := row.Scan(
+		&decision.ID, &decision.CreatedAt, &decision.Mode, &decision.AccountID, &decision.Action,
+		&decision.ScheduledAt, &decision.ExecutedAt, &decision.Score, &decision.Reason,
+		&decision.StateBeforeJSON, &decision.Status, &decision.IdempotencyKey,
+	); err != nil {
+		return Decision{}, err
+	}
+	return decision, nil
+}
+
+func (r Repository) CancelDecision(ctx context.Context, decisionID string) (*Decision, bool, error) {
+	result, err := r.store.DB().ExecContext(ctx, `
+		UPDATE quota_planner_decisions
+		   SET status = 'canceled', reason = 'admin_canceled'
+		 WHERE id = ? AND status IN ('planned', 'skipped')
+	`, decisionID)
+	if err != nil {
+		return nil, false, fmt.Errorf("cancel quota planner decision: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, false, err
+	}
+	decision, err := r.GetDecision(ctx, decisionID)
+	if err != nil {
+		return nil, false, err
+	}
+	if decision == nil {
+		return nil, false, nil
+	}
+	return decision, rows > 0, nil
 }
 
 func (r Repository) BuildForecast(ctx context.Context, horizonHours int) (Forecast, error) {
@@ -324,4 +487,11 @@ func nullString(value sql.NullString) any {
 		return value.String
 	}
 	return nil
+}
+
+func nullableStringValue(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
 }

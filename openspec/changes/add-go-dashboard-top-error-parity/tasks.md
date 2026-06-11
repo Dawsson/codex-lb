@@ -1,0 +1,4 @@
+- [x] 1. Add dashboard top-error parity requirements.
+- [x] 2. Update Go dashboard top-error SQL to consider failed logs only and ignore blank codes.
+- [x] 3. Add focused repository test.
+- [x] 4. Validate focused dashboard tests, Go build/tests, and strict OpenSpec.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/soju06/codex-lb/internal/db"
+	"github.com/soju06/codex-lb/internal/platform"
 )
 
 type Repository struct {
@@ -31,6 +32,17 @@ type TrendPoint struct {
 	CostUSD      float64
 }
 
+type UsageHistoryRow struct {
+	AccountID     string
+	RecordedAt    string
+	Window        string
+	UsedPercent   float64
+	ResetAt       sql.NullInt64
+	WindowMinutes sql.NullInt64
+}
+
+const visibleRequestLogAggregateClause = "request_kind NOT IN ('warmup', 'limit_warmup')"
+
 func NewRepository(store *db.Store) Repository {
 	return Repository{store: store}
 }
@@ -47,6 +59,7 @@ func (r Repository) AggregateActivitySince(ctx context.Context, since time.Time)
 		  FROM request_logs
 		 WHERE deleted_at IS NULL
 		   AND requested_at >= ?
+		   AND `+visibleRequestLogAggregateClause+`
 	`, since.UTC().Format("2006-01-02 15:04:05")).Scan(
 		&aggregate.Requests,
 		&aggregate.InputTokens,
@@ -68,7 +81,10 @@ func (r Repository) TopErrorSince(ctx context.Context, since time.Time) (*string
 		  FROM request_logs
 		 WHERE deleted_at IS NULL
 		   AND requested_at >= ?
+		   AND `+visibleRequestLogAggregateClause+`
+		   AND status != 'success'
 		   AND error_code IS NOT NULL
+		   AND error_code != ''
 		 GROUP BY error_code
 		 ORDER BY count(*) DESC, error_code ASC
 		 LIMIT 1
@@ -96,6 +112,7 @@ func (r Repository) Trends(ctx context.Context, since time.Time, bucketSeconds i
 		  FROM request_logs
 		 WHERE deleted_at IS NULL
 		   AND requested_at >= ?
+		   AND `+visibleRequestLogAggregateClause+`
 		 GROUP BY bucket
 		 ORDER BY bucket ASC
 	`, bucketSeconds, bucketSeconds, since.UTC().Format("2006-01-02 15:04:05"))
@@ -116,4 +133,64 @@ func (r Repository) Trends(ctx context.Context, since time.Time, bucketSeconds i
 		return nil, fmt.Errorf("iterate trend points: %w", err)
 	}
 	return points, nil
+}
+
+func (r Repository) LatestSyncAt(ctx context.Context) (*string, error) {
+	var recorded sql.NullString
+	err := r.store.DB().QueryRowContext(ctx, `
+		SELECT max(recorded_at)
+		  FROM (
+			SELECT recorded_at FROM usage_history
+			UNION ALL
+			SELECT recorded_at FROM additional_usage_history
+		  )
+	`).Scan(&recorded)
+	if err != nil {
+		return nil, fmt.Errorf("latest sync at: %w", err)
+	}
+	return platform.SQLiteTimeToISO(recorded), nil
+}
+
+func (r Repository) UsageHistorySince(ctx context.Context, since time.Time) ([]UsageHistoryRow, error) {
+	rows, err := r.store.DB().QueryContext(ctx, `
+		SELECT account_id,
+		       recorded_at,
+		       coalesce(window, 'primary') AS window_name,
+		       used_percent,
+		       reset_at,
+		       window_minutes
+		  FROM usage_history
+		 WHERE recorded_at >= ?
+		 ORDER BY account_id, window_name, recorded_at ASC, id ASC
+	`, since.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return nil, fmt.Errorf("query usage history for depletion: %w", err)
+	}
+	defer rows.Close()
+	var result []UsageHistoryRow
+	for rows.Next() {
+		var row UsageHistoryRow
+		if err := rows.Scan(&row.AccountID, &row.RecordedAt, &row.Window, &row.UsedPercent, &row.ResetAt, &row.WindowMinutes); err != nil {
+			return nil, fmt.Errorf("scan depletion usage history: %w", err)
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func (r Repository) WeeklyPaceWorkingDays(ctx context.Context) (string, error) {
+	var days sql.NullString
+	err := r.store.DB().QueryRowContext(ctx, `
+		SELECT weekly_pace_working_days
+		  FROM dashboard_settings
+		 ORDER BY id
+		 LIMIT 1
+	`).Scan(&days)
+	if err != nil {
+		return "", fmt.Errorf("load weekly pace working days: %w", err)
+	}
+	if !days.Valid {
+		return "", nil
+	}
+	return days.String, nil
 }

@@ -1,6 +1,7 @@
 package apikeys
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -8,12 +9,20 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/soju06/codex-lb/internal/audit"
+	"github.com/soju06/codex-lb/internal/cacheinvalidation"
 	"github.com/soju06/codex-lb/internal/httputil"
 	"github.com/soju06/codex-lb/internal/platform"
 )
 
 type Handler struct {
-	repo Repository
+	repo      Repository
+	bumper    cacheBumper
+	auditRepo *audit.Repository
+}
+
+type cacheBumper interface {
+	Bump(ctx context.Context, namespace string) error
 }
 
 type limitRuleResponse struct {
@@ -34,26 +43,26 @@ type usageSummaryResponse struct {
 }
 
 type keyResponse struct {
-	ID                            string                `json:"id"`
-	Name                          string                `json:"name"`
-	KeyPrefix                     string                `json:"keyPrefix"`
-	AllowedModels                 []string              `json:"allowedModels"`
-	ApplyToCodexModel             bool                  `json:"applyToCodexModel"`
-	EnforcedModel                 *string               `json:"enforcedModel"`
-	EnforcedReasoningEffort       *string               `json:"enforcedReasoningEffort"`
-	EnforcedServiceTier           *string               `json:"enforcedServiceTier"`
-	TrafficClass                  string                `json:"trafficClass"`
-	ExpiresAt                     *string               `json:"expiresAt"`
-	IsActive                      bool                  `json:"isActive"`
-	AccountAssignmentScopeEnabled bool                  `json:"accountAssignmentScopeEnabled"`
-	AssignedAccountIDs            []string              `json:"assignedAccountIds"`
-	CreatedAt                     string                `json:"createdAt"`
-	LastUsedAt                    *string               `json:"lastUsedAt"`
-	Limits                        []limitRuleResponse   `json:"limits"`
-	UsageSummary                  *usageSummaryResponse `json:"usageSummary"`
-	PooledRemainingPercentPrimary *float64              `json:"pooledRemainingPercentPrimary"`
-	PooledRemainingPercentSecondary *float64            `json:"pooledRemainingPercentSecondary"`
-	PooledCapacityCreditsPrimary  float64               `json:"pooledCapacityCreditsPrimary"`
+	ID                              string                `json:"id"`
+	Name                            string                `json:"name"`
+	KeyPrefix                       string                `json:"keyPrefix"`
+	AllowedModels                   []string              `json:"allowedModels"`
+	ApplyToCodexModel               bool                  `json:"applyToCodexModel"`
+	EnforcedModel                   *string               `json:"enforcedModel"`
+	EnforcedReasoningEffort         *string               `json:"enforcedReasoningEffort"`
+	EnforcedServiceTier             *string               `json:"enforcedServiceTier"`
+	TrafficClass                    string                `json:"trafficClass"`
+	ExpiresAt                       *string               `json:"expiresAt"`
+	IsActive                        bool                  `json:"isActive"`
+	AccountAssignmentScopeEnabled   bool                  `json:"accountAssignmentScopeEnabled"`
+	AssignedAccountIDs              []string              `json:"assignedAccountIds"`
+	CreatedAt                       string                `json:"createdAt"`
+	LastUsedAt                      *string               `json:"lastUsedAt"`
+	Limits                          []limitRuleResponse   `json:"limits"`
+	UsageSummary                    *usageSummaryResponse `json:"usageSummary"`
+	PooledRemainingPercentPrimary   *float64              `json:"pooledRemainingPercentPrimary"`
+	PooledRemainingPercentSecondary *float64              `json:"pooledRemainingPercentSecondary"`
+	PooledCapacityCreditsPrimary    float64               `json:"pooledCapacityCreditsPrimary"`
 }
 
 type createResponse struct {
@@ -62,10 +71,10 @@ type createResponse struct {
 }
 
 type limitCreatePayload struct {
-	LimitType    string  `json:"limitType"`
-	LimitWindow  string  `json:"limitWindow"`
-	MaxValue     int64   `json:"maxValue"`
-	ModelFilter  *string `json:"modelFilter"`
+	LimitType   string  `json:"limitType"`
+	LimitWindow string  `json:"limitWindow"`
+	MaxValue    int64   `json:"maxValue"`
+	ModelFilter *string `json:"modelFilter"`
 }
 
 type createRequest struct {
@@ -98,8 +107,17 @@ type updateRequest struct {
 	ResetUsage              *bool                `json:"resetUsage"`
 }
 
-func NewHandler(repo Repository) Handler {
-	return Handler{repo: repo}
+func NewHandler(repo Repository, bumpers ...cacheBumper) Handler {
+	var bumper cacheBumper
+	if len(bumpers) > 0 {
+		bumper = bumpers[0]
+	}
+	return Handler{repo: repo, bumper: bumper}
+}
+
+func (h Handler) WithAudit(repo audit.Repository) Handler {
+	h.auditRepo = &repo
+	return h
 }
 
 func (h Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -126,14 +144,14 @@ func (h Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input := CreateInput{
-		Name:               payload.Name,
-		AllowedModels:      payload.AllowedModels,
-		EnforcedModel:      payload.EnforcedModel,
+		Name:                    payload.Name,
+		AllowedModels:           payload.AllowedModels,
+		EnforcedModel:           payload.EnforcedModel,
 		EnforcedReasoningEffort: payload.EnforcedReasoningEffort,
-		EnforcedServiceTier: payload.EnforcedServiceTier,
-		ExpiresAt:          payload.ExpiresAt,
-		AssignedAccountIDs: payload.AssignedAccountIDs,
-		Limits:             toLimitInputs(payload.Limits),
+		EnforcedServiceTier:     payload.EnforcedServiceTier,
+		ExpiresAt:               payload.ExpiresAt,
+		AssignedAccountIDs:      payload.AssignedAccountIDs,
+		Limits:                  toLimitInputs(payload.Limits),
 	}
 	if payload.ApplyToCodexModel != nil {
 		input.ApplyToCodexModel = *payload.ApplyToCodexModel
@@ -153,6 +171,8 @@ func (h Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteServerError(w, err)
 		return
 	}
+	h.bumpInvalidation(r.Context())
+	h.audit(r, "api_key_created", map[string]any{"key_id": created.ID})
 	resp := toKeyResponse(created)
 	httputil.WriteJSON(w, http.StatusOK, createResponse{keyResponse: resp, Key: plainKey})
 }
@@ -237,6 +257,12 @@ func (h Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "not_found", "API key not found")
 		return
 	}
+	h.bumpInvalidation(r.Context())
+	if payload.IsActive != nil && !*payload.IsActive && !updated.IsActive {
+		h.audit(r, "api_key_revoked", map[string]any{"key_id": updated.ID})
+	} else {
+		h.audit(r, "api_key_updated", map[string]any{"key_id": updated.ID})
+	}
 	httputil.WriteJSON(w, http.StatusOK, toKeyResponse(*updated))
 }
 
@@ -251,6 +277,8 @@ func (h Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "not_found", "API key not found")
 		return
 	}
+	h.bumpInvalidation(r.Context())
+	h.audit(r, "api_key_revoked", map[string]any{"key_id": keyID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -355,8 +383,20 @@ func (h Handler) Regenerate(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "not_found", "API key not found")
 		return
 	}
+	h.bumpInvalidation(r.Context())
+	h.audit(r, "api_key_regenerated", map[string]any{"key_id": updated.ID})
 	resp := toKeyResponse(*updated)
 	httputil.WriteJSON(w, http.StatusOK, createResponse{keyResponse: resp, Key: plainKey})
+}
+
+func (h Handler) audit(r *http.Request, action string, details map[string]any) {
+	audit.LogRequest(h.auditRepo, r, action, details)
+}
+
+func (h Handler) bumpInvalidation(ctx context.Context) {
+	if h.bumper != nil {
+		_ = h.bumper.Bump(ctx, cacheinvalidation.NamespaceAPIKey)
+	}
 }
 
 func toKeyResponse(key KeyRecord) keyResponse {
@@ -382,26 +422,26 @@ func toKeyResponse(key KeyRecord) keyResponse {
 		})
 	}
 	return keyResponse{
-		ID:                            key.ID,
-		Name:                          key.Name,
-		KeyPrefix:                     key.KeyPrefix,
-		AllowedModels:                 deserializeAllowedModels(key.AllowedModels),
-		ApplyToCodexModel:             key.ApplyToCodexModel,
-		EnforcedModel:                 nullStringPtr(key.EnforcedModel),
-		EnforcedReasoningEffort:       nullStringPtr(key.EnforcedReasoningEffort),
-		EnforcedServiceTier:           nullStringPtr(key.EnforcedServiceTier),
-		TrafficClass:                  key.TrafficClass,
-		ExpiresAt:                     nullTimePtr(key.ExpiresAt),
-		IsActive:                      key.IsActive,
-		AccountAssignmentScopeEnabled: key.AccountAssignmentScopeEnabled,
-		AssignedAccountIDs:            httputil.EmptySlice(key.AssignedAccountIDs),
-		CreatedAt:                     formatTime(key.CreatedAt),
-		LastUsedAt:                    nullTimePtr(key.LastUsedAt),
-		Limits:                        httputil.EmptySlice(limits),
-		UsageSummary:                  usage,
-		PooledRemainingPercentPrimary: nil,
+		ID:                              key.ID,
+		Name:                            key.Name,
+		KeyPrefix:                       key.KeyPrefix,
+		AllowedModels:                   deserializeAllowedModels(key.AllowedModels),
+		ApplyToCodexModel:               key.ApplyToCodexModel,
+		EnforcedModel:                   nullStringPtr(key.EnforcedModel),
+		EnforcedReasoningEffort:         nullStringPtr(key.EnforcedReasoningEffort),
+		EnforcedServiceTier:             nullStringPtr(key.EnforcedServiceTier),
+		TrafficClass:                    key.TrafficClass,
+		ExpiresAt:                       nullTimePtr(key.ExpiresAt),
+		IsActive:                        key.IsActive,
+		AccountAssignmentScopeEnabled:   key.AccountAssignmentScopeEnabled,
+		AssignedAccountIDs:              httputil.EmptySlice(key.AssignedAccountIDs),
+		CreatedAt:                       formatTime(key.CreatedAt),
+		LastUsedAt:                      nullTimePtr(key.LastUsedAt),
+		Limits:                          httputil.EmptySlice(limits),
+		UsageSummary:                    usage,
+		PooledRemainingPercentPrimary:   nil,
 		PooledRemainingPercentSecondary: nil,
-		PooledCapacityCreditsPrimary:  0,
+		PooledCapacityCreditsPrimary:    0,
 	}
 }
 

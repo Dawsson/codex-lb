@@ -11,6 +11,7 @@ type OpenAIErrorDetail struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    string `json:"code"`
+	Param   string `json:"param,omitempty"`
 }
 
 // OpenAIErrorEnvelope mirrors app.core.errors.OpenAIErrorEnvelope.
@@ -33,6 +34,7 @@ type AppError struct {
 	Code       string
 	ErrorType  string
 	Message    string
+	Param      string
 }
 
 func (e *AppError) Error() string {
@@ -54,7 +56,19 @@ func NewProxyRateLimitError(message string) *AppError {
 	return &AppError{StatusCode: http.StatusTooManyRequests, Code: "rate_limit_exceeded", ErrorType: "rate_limit_error", Message: message}
 }
 
+func NewClientPayloadError(message, param, code, errorType string) *AppError {
+	if code == "" {
+		code = "invalid_request_error"
+	}
+	if errorType == "" {
+		errorType = "invalid_request_error"
+	}
+	return &AppError{StatusCode: http.StatusBadRequest, Code: code, ErrorType: errorType, Message: message, Param: param}
+}
+
 // WriteError writes an AppError as an OpenAI-style JSON error envelope.
 func WriteError(w http.ResponseWriter, err *AppError) {
-	httputil.WriteJSON(w, err.StatusCode, OpenAIError(err.Code, err.Message, err.ErrorType))
+	envelope := OpenAIError(err.Code, err.Message, err.ErrorType)
+	envelope.Error.Param = err.Param
+	httputil.WriteJSON(w, err.StatusCode, envelope)
 }

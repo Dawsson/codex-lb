@@ -13,6 +13,7 @@ type AccountCacheKey struct {
 	TrafficClass       string
 	RoutingKey         string
 	AssignedAccountIDs string
+	AdditionalQuotaKey string
 }
 
 // AccountSelectionCache mirrors

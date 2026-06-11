@@ -1,0 +1,5 @@
+- [x] 1. Add Go dashboard depletion requirements.
+- [x] 2. Add usage-history query support for dashboard depletion.
+- [x] 3. Port EWMA depletion formulas and aggregate worst-risk response mapping.
+- [x] 4. Wire depletion into overview/projections responses with focused tests.
+- [x] 5. Validate focused dashboard tests, Go build/tests, and strict OpenSpec.

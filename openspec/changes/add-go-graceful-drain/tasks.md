@@ -1,0 +1,5 @@
+- [x] 1. Add Go graceful-drain requirements.
+- [x] 2. Add drain state and in-flight HTTP middleware.
+- [x] 3. Add loopback-only drain routes and readiness integration.
+- [x] 4. Add focused Go tests for access control, status shape, readiness, 503 gating, and in-flight accounting.
+- [x] 5. Validate focused health tests, Go build/tests, and strict OpenSpec.

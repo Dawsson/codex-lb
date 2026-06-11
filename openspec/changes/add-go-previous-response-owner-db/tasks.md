@@ -1,0 +1,5 @@
+- [x] Specify DB-backed previous-response owner fallback for Go Responses routing
+- [x] Add request log repository lookup for successful response owners
+- [x] Use the DB lookup after local previous-response index misses
+- [x] Add focused repository regression tests
+- [ ] Full inter-replica HTTP bridge continuity remains out of scope

@@ -1,0 +1,4 @@
+- [x] 1. Add dashboard null-contract requirements.
+- [x] 2. Update Go dashboard overview/projections JSON structs to emit explicit nullable projection keys.
+- [x] 3. Add focused tests for overview/projections JSON shape.
+- [x] 4. Validate focused dashboard tests, Go build/tests, and strict OpenSpec.

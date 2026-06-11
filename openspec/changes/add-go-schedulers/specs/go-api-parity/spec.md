@@ -21,11 +21,18 @@ quota planner, and auth guardian, each on its own configurable interval.
 ### Requirement: Go runs a continuous cache invalidation poller
 
 The Go API SHALL run a continuous (non-leader-gated) poller that watches for
-cache invalidation signals and clears the API key cache and firewall IP
-cache when signaled, matching `CacheInvalidationPoller` behavior.
+cache invalidation signals and clears API key cache, firewall IP cache, and
+settings-derived proxy selection cache when signaled, matching
+`CacheInvalidationPoller` behavior.
 
 #### Scenario: API key cache invalidation signal clears cache
 
 - **WHEN** an API key is created, updated, or deleted on any replica
 - **THEN** all replicas' in-process API key caches are cleared within one
   poll interval.
+
+#### Scenario: Settings invalidation signal clears selection cache
+
+- **WHEN** routing-affecting settings are changed on any replica
+- **THEN** all replicas' in-process account selection caches are cleared
+  within one poll interval.

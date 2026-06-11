@@ -1,0 +1,4 @@
+- [x] 1. Add Go dashboard account ordering requirement.
+- [x] 2. Sort overview account summaries by primary capacity without changing `/api/accounts`.
+- [x] 3. Add focused Go test for ordering with nil/zero capacities.
+- [x] 4. Validate focused dashboard tests, Go build/tests, and strict OpenSpec.

@@ -1,0 +1,5 @@
+- [x] 1. Add Go dashboard depletion cache requirements.
+- [x] 2. Add compact history signature and EWMA state cache.
+- [x] 3. Invalidate on changed/expired/absent account-window histories.
+- [x] 4. Add focused cache reuse/invalidation tests.
+- [x] 5. Validate focused dashboard tests, Go build/tests, and strict OpenSpec.

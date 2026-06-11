@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	sparklineDays        = 7
-	detailBucketSeconds  = 3600
+	sparklineDays       = 7
+	detailBucketSeconds = 3600
 )
 
 type UsageTrendBucket struct {
@@ -128,9 +128,9 @@ func BuildAccountTrends(buckets []UsageTrendBucket, sinceEpoch int64, bucketSeco
 		windowMinutes int64
 	}{}
 
-	for _, bucket := range buckets {
+	for _, bucket := range effectiveUsageTrendBuckets(buckets) {
 		window := bucket.Window
-		if window == "monthly" {
+		if window == "monthly" || isWeeklyWindowMinutes(bucket.WindowMinutes) {
 			window = "secondary"
 		}
 		switch window {
@@ -157,10 +157,64 @@ func BuildAccountTrends(buckets []UsageTrendBucket, sinceEpoch int64, bucketSeco
 	}
 
 	return TrendsResponse{
-		Primary:            fillTrendPoints(timeGrid, primaryData),
-		Secondary:          fillTrendPoints(timeGrid, secondaryData),
+		Primary:            fillTrendPointsIfPresent(timeGrid, primaryData),
+		Secondary:          fillTrendPointsIfPresent(timeGrid, secondaryData),
 		SecondaryScheduled: fillScheduledSecondaryPoints(timeGrid, secondarySchedule),
 	}
+}
+
+func fillTrendPointsIfPresent(timeGrid []int64, bucketData map[int64]float64) []TrendPoint {
+	if len(bucketData) == 0 {
+		return []TrendPoint{}
+	}
+	return fillTrendPoints(timeGrid, bucketData)
+}
+
+func effectiveUsageTrendBuckets(buckets []UsageTrendBucket) []UsageTrendBucket {
+	secondaryByEpoch := map[int64]UsageTrendBucket{}
+	weeklyPrimaryByEpoch := map[int64]UsageTrendBucket{}
+	for _, bucket := range buckets {
+		if bucket.Window == "secondary" {
+			secondaryByEpoch[bucket.BucketEpoch] = bucket
+		}
+		if bucket.Window == "primary" && isWeeklyWindowMinutes(bucket.WindowMinutes) {
+			weeklyPrimaryByEpoch[bucket.BucketEpoch] = bucket
+		}
+	}
+	result := make([]UsageTrendBucket, 0, len(buckets))
+	for _, bucket := range buckets {
+		secondary, hasSecondary := secondaryByEpoch[bucket.BucketEpoch]
+		weeklyPrimary, hasWeeklyPrimary := weeklyPrimaryByEpoch[bucket.BucketEpoch]
+		if bucket.Window == "secondary" && hasWeeklyPrimary {
+			if shouldUseWeeklyPrimaryTrend(weeklyPrimary, bucket) {
+				continue
+			}
+		}
+		if bucket.Window == "primary" && isWeeklyWindowMinutes(bucket.WindowMinutes) && hasSecondary {
+			if !shouldUseWeeklyPrimaryTrend(bucket, secondary) {
+				continue
+			}
+		}
+		result = append(result, bucket)
+	}
+	return result
+}
+
+func isWeeklyWindowMinutes(value sql.NullInt64) bool {
+	return value.Valid && value.Int64 >= 7*24*60
+}
+
+func shouldUseWeeklyPrimaryTrend(primary UsageTrendBucket, secondary UsageTrendBucket) bool {
+	if !isWeeklyWindowMinutes(primary.WindowMinutes) {
+		return false
+	}
+	if secondary.Window == "" {
+		return true
+	}
+	if primary.ResetAt.Valid && secondary.ResetAt.Valid && primary.ResetAt.Int64 != secondary.ResetAt.Int64 {
+		return primary.ResetAt.Int64 > secondary.ResetAt.Int64
+	}
+	return primary.AvgUsedPercent >= secondary.AvgUsedPercent
 }
 
 func fillTrendPoints(timeGrid []int64, bucketData map[int64]float64) []TrendPoint {

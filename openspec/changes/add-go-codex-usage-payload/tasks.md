@@ -1,0 +1,5 @@
+- [x] 1. Add Go API-key Codex usage payload requirements.
+- [x] 2. Port credit-limit selection and window snapshot mapping.
+- [x] 3. Port credit balance snapshot mapping.
+- [x] 4. Add focused handler tests for primary/secondary/monthly and null cases.
+- [x] 5. Validate focused proxy tests, Go build/tests, and strict OpenSpec.

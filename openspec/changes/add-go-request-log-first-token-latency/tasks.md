@@ -1,0 +1,4 @@
+- [x] 1. Add request-log first-token latency response requirement.
+- [x] 2. Emit `latencyFirstTokenMs` from the Go request-log mapper.
+- [x] 3. Update dashboard request-log schema validation.
+- [x] 4. Add focused regression coverage and validate.

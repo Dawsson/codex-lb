@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -37,6 +38,45 @@ type UsageSummary struct {
 	TotalCostUSD      float64
 }
 
+type SelfUsage struct {
+	RequestCount      int         `json:"request_count"`
+	TotalTokens       int         `json:"total_tokens"`
+	CachedInputTokens int         `json:"cached_input_tokens"`
+	TotalCostUSD      float64     `json:"total_cost_usd"`
+	Limits            []SelfLimit `json:"limits"`
+	UpstreamLimits    []SelfLimit `json:"upstream_limits"`
+}
+
+type SelfLimit struct {
+	LimitType      string  `json:"limit_type"`
+	LimitWindow    string  `json:"limit_window"`
+	MaxValue       int64   `json:"max_value"`
+	CurrentValue   int64   `json:"current_value"`
+	RemainingValue int64   `json:"remaining_value"`
+	ModelFilter    *string `json:"model_filter"`
+	ResetAt        string  `json:"reset_at"`
+	Source         string  `json:"source"`
+}
+
+type UsageBudget struct {
+	InputTokens  *int64
+	OutputTokens *int64
+}
+
+type UsageReservation struct {
+	ID    string
+	KeyID string
+	Model string
+}
+
+type UsageSettlement struct {
+	Model             string
+	ServiceTier       string
+	InputTokens       *int64
+	OutputTokens      *int64
+	CachedInputTokens *int64
+}
+
 type KeyRecord struct {
 	ID                            string
 	Name                          string
@@ -58,23 +98,23 @@ type KeyRecord struct {
 }
 
 type LimitInput struct {
-	LimitType    string
-	LimitWindow  string
-	MaxValue     int64
-	ModelFilter  *string
+	LimitType   string
+	LimitWindow string
+	MaxValue    int64
+	ModelFilter *string
 }
 
 type CreateInput struct {
-	Name                     string
-	AllowedModels            []string
-	ApplyToCodexModel        bool
-	EnforcedModel            *string
-	EnforcedReasoningEffort  *string
-	EnforcedServiceTier      *string
-	TrafficClass             string
-	ExpiresAt                *string
-	AssignedAccountIDs       []string
-	Limits                   []LimitInput
+	Name                    string
+	AllowedModels           []string
+	ApplyToCodexModel       bool
+	EnforcedModel           *string
+	EnforcedReasoningEffort *string
+	EnforcedServiceTier     *string
+	TrafficClass            string
+	ExpiresAt               *string
+	AssignedAccountIDs      []string
+	Limits                  []LimitInput
 }
 
 type UpdateInput struct {
@@ -396,9 +436,348 @@ func (r Repository) Regenerate(ctx context.Context, keyID string) (*KeyRecord, s
 	return updated, plainKey, err
 }
 
+func (r Repository) SelfUsage(ctx context.Context, keyID string) (*SelfUsage, error) {
+	key, err := r.GetByID(ctx, keyID)
+	if err != nil || key == nil {
+		return nil, err
+	}
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	if _, err := r.ResetExpiredLimits(ctx, now); err != nil {
+		return nil, err
+	}
+	key, err = r.GetByID(ctx, keyID)
+	if err != nil || key == nil {
+		return nil, err
+	}
+	summary, err := r.usageSummaryByKeyID(ctx, keyID)
+	if err != nil {
+		return nil, err
+	}
+	limits := make([]SelfLimit, 0, len(key.Limits))
+	for _, limit := range key.Limits {
+		current := limit.CurrentValue
+		if current < 0 {
+			current = 0
+		}
+		if current > limit.MaxValue {
+			current = limit.MaxValue
+		}
+		modelFilter := nullableStringPtr(limit.ModelFilter)
+		limits = append(limits, SelfLimit{
+			LimitType:      limit.LimitType,
+			LimitWindow:    limit.LimitWindow,
+			MaxValue:       limit.MaxValue,
+			CurrentValue:   current,
+			RemainingValue: maxInt64Local(0, limit.MaxValue-current),
+			ModelFilter:    modelFilter,
+			ResetAt:        sqliteToISO(limit.ResetAt.String),
+			Source:         "api_key_limit",
+		})
+	}
+	return &SelfUsage{
+		RequestCount:      summary.RequestCount,
+		TotalTokens:       summary.TotalTokens,
+		CachedInputTokens: summary.CachedInputTokens,
+		TotalCostUSD:      summary.TotalCostUSD,
+		Limits:            limits,
+		UpstreamLimits:    []SelfLimit{},
+	}, nil
+}
+
+func (r Repository) ResetExpiredLimits(ctx context.Context, now string) (int64, error) {
+	rows, err := r.store.DB().QueryContext(ctx, `
+		SELECT id, limit_window FROM api_key_limits WHERE reset_at <= ?
+	`, now)
+	if err != nil {
+		return 0, fmt.Errorf("list expired api key limits: %w", err)
+	}
+	defer rows.Close()
+	type expiredLimit struct {
+		ID     int64
+		Window string
+	}
+	var expired []expiredLimit
+	for rows.Next() {
+		var limit expiredLimit
+		if err := rows.Scan(&limit.ID, &limit.Window); err != nil {
+			return 0, fmt.Errorf("scan expired api key limit: %w", err)
+		}
+		expired = append(expired, limit)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	var updated int64
+	for _, limit := range expired {
+		result, err := r.store.DB().ExecContext(ctx, `
+			UPDATE api_key_limits SET current_value = 0, reset_at = ? WHERE id = ?
+		`, defaultResetAt(limit.Window, now), limit.ID)
+		if err != nil {
+			return updated, fmt.Errorf("reset api key limit: %w", err)
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return updated, err
+		}
+		updated += count
+	}
+	return updated, nil
+}
+
+func (r Repository) EnforceRequestLimits(ctx context.Context, keyID, model, serviceTier string, budget UsageBudget) (*UsageReservation, error) {
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	if _, err := r.ResetExpiredLimits(ctx, now); err != nil {
+		return nil, err
+	}
+	key, err := r.GetByID(ctx, keyID)
+	if err != nil || key == nil {
+		return nil, err
+	}
+	if key.ExpiresAt.Valid && key.ExpiresAt.String <= now {
+		return nil, fmt.Errorf("API key has expired")
+	}
+	if len(key.Limits) == 0 {
+		return nil, nil
+	}
+	inputBudget := normalizeReservationBudget(budget.InputTokens, 8192)
+	outputBudget := normalizeReservationBudget(budget.OutputTokens, 2048)
+	reservationID := "ur_" + uuid.NewString()
+
+	tx, err := r.store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, limit := range key.Limits {
+		if limit.ModelFilter.Valid && limit.ModelFilter.String != model {
+			continue
+		}
+		if limit.CurrentValue >= limit.MaxValue {
+			return nil, apiKeyLimitExceeded(limit)
+		}
+		delta := reserveDeltaForLimit(limit.LimitType, model, serviceTier, inputBudget, outputBudget)
+		if delta > 0 {
+			result, err := tx.ExecContext(ctx, `
+				UPDATE api_key_limits
+				   SET current_value = current_value + ?
+				 WHERE id = ?
+				   AND reset_at = ?
+				   AND current_value + ? <= max_value
+			`, delta, limit.ID, limit.ResetAt.String, delta)
+			if err != nil {
+				return nil, fmt.Errorf("reserve api key usage: %w", err)
+			}
+			rows, err := result.RowsAffected()
+			if err != nil {
+				return nil, err
+			}
+			if rows == 0 {
+				return nil, apiKeyLimitExceeded(limit)
+			}
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO api_key_usage_reservation_items (
+				reservation_id, limit_id, limit_type, reserved_delta, expected_reset_at
+			) VALUES (?, ?, ?, ?, ?)
+		`, reservationID, limit.ID, limit.LimitType, delta, limit.ResetAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("insert api key reservation item: %w", err)
+		}
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO api_key_usage_reservations (id, api_key_id, model, status)
+		VALUES (?, ?, ?, 'reserved')
+	`, reservationID, keyID, model)
+	if err != nil {
+		return nil, fmt.Errorf("insert api key usage reservation: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &UsageReservation{ID: reservationID, KeyID: keyID, Model: model}, nil
+}
+
+func (r Repository) ReleaseUsageReservation(ctx context.Context, reservationID string) error {
+	if reservationID == "" {
+		return nil
+	}
+	return r.settleUsageReservation(ctx, reservationID, "released", UsageSettlement{})
+}
+
+func (r Repository) FinalizeUsageReservation(ctx context.Context, reservationID string, settlement UsageSettlement) error {
+	if reservationID == "" {
+		return nil
+	}
+	return r.settleUsageReservation(ctx, reservationID, "finalized", settlement)
+}
+
+func (r Repository) FailUsageReservation(ctx context.Context, reservationID string, settlement UsageSettlement) error {
+	if reservationID == "" {
+		return nil
+	}
+	return r.settleUsageReservation(ctx, reservationID, "failed", settlement)
+}
+
+func (r Repository) TouchUsageReservation(ctx context.Context, reservationID string) (bool, error) {
+	if reservationID == "" {
+		return false, nil
+	}
+	result, err := r.store.DB().ExecContext(ctx, `
+		UPDATE api_key_usage_reservations
+		   SET updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND status = 'reserved'
+	`, reservationID)
+	if err != nil {
+		return false, fmt.Errorf("touch api key reservation: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
+func (r Repository) settleUsageReservation(ctx context.Context, reservationID, status string, settlement UsageSettlement) error {
+	tx, err := r.store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE api_key_usage_reservations
+		   SET status = 'settling', updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND status = 'reserved'
+	`, reservationID)
+	if err != nil {
+		return fmt.Errorf("claim api key reservation: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return tx.Commit()
+	}
+	itemRows, err := tx.QueryContext(ctx, `
+		SELECT limit_id, limit_type, reserved_delta, CAST(expected_reset_at AS TEXT)
+		  FROM api_key_usage_reservation_items
+		 WHERE reservation_id = ?
+	`, reservationID)
+	if err != nil {
+		return fmt.Errorf("list reservation items: %w", err)
+	}
+	type item struct {
+		limitID       int
+		limitType     string
+		reservedDelta int64
+		resetAt       string
+	}
+	var items []item
+	for itemRows.Next() {
+		var row item
+		if err := itemRows.Scan(&row.limitID, &row.limitType, &row.reservedDelta, &row.resetAt); err != nil {
+			_ = itemRows.Close()
+			return err
+		}
+		items = append(items, row)
+	}
+	if err := itemRows.Close(); err != nil {
+		return err
+	}
+	inputTokens := int64Value(settlement.InputTokens)
+	outputTokens := int64Value(settlement.OutputTokens)
+	costMicrodollars := int64(0)
+	if status != "released" {
+		costMicrodollars = unknownModelReserveCostMicrodollars(inputTokens, outputTokens)
+	}
+	for _, row := range items {
+		actualDelta := actualDeltaForLimit(row.limitType, inputTokens, outputTokens, costMicrodollars)
+		if status == "released" {
+			actualDelta = 0
+		}
+		delta := actualDelta - row.reservedDelta
+		if delta != 0 {
+			_, err = tx.ExecContext(ctx, `
+				UPDATE api_key_limits
+				   SET current_value = max(0, current_value + ?)
+				 WHERE id = ? AND reset_at = ?
+			`, delta, row.limitID, row.resetAt)
+			if err != nil {
+				return fmt.Errorf("settle api key limit usage: %w", err)
+			}
+		}
+		_, err = tx.ExecContext(ctx, `
+			UPDATE api_key_usage_reservation_items
+			   SET actual_delta = ?, updated_at = CURRENT_TIMESTAMP
+			 WHERE reservation_id = ? AND limit_id = ?
+		`, actualDelta, reservationID, row.limitID)
+		if err != nil {
+			return fmt.Errorf("settle api key reservation item: %w", err)
+		}
+	}
+	var input any
+	var output any
+	var cached any
+	var cost any
+	if status != "released" {
+		input = nullableInt64(settlement.InputTokens)
+		output = nullableInt64(settlement.OutputTokens)
+		cached = nullableInt64(settlement.CachedInputTokens)
+		cost = costMicrodollars
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE api_key_usage_reservations
+		   SET status = ?,
+		       input_tokens = ?,
+		       output_tokens = ?,
+		       cached_input_tokens = ?,
+		       cost_microdollars = ?,
+		       updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ?
+	`, status, input, output, cached, cost, reservationID)
+	if err != nil {
+		return fmt.Errorf("settle api key reservation: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (r Repository) ReleaseStaleUsageReservations(ctx context.Context, cutoff string) (int64, error) {
+	rows, err := r.store.DB().QueryContext(ctx, `
+		SELECT id
+		  FROM api_key_usage_reservations
+		 WHERE status = 'reserved' AND updated_at < ?
+		 ORDER BY updated_at ASC
+	`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("list stale api key usage reservations: %w", err)
+	}
+	defer rows.Close()
+
+	var reservationIDs []string
+	for rows.Next() {
+		var reservationID string
+		if err := rows.Scan(&reservationID); err != nil {
+			return 0, fmt.Errorf("scan stale api key usage reservation: %w", err)
+		}
+		reservationIDs = append(reservationIDs, reservationID)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var released int64
+	for _, reservationID := range reservationIDs {
+		if err := r.ReleaseUsageReservation(ctx, reservationID); err != nil {
+			return released, err
+		}
+		released++
+	}
+	return released, nil
+}
+
 func (r Repository) listLimits(ctx context.Context, keyID string) ([]LimitRule, error) {
 	rows, err := r.store.DB().QueryContext(ctx, `
-		SELECT id, limit_type, limit_window, max_value, current_value, model_filter, reset_at
+		SELECT id, limit_type, limit_window, max_value, current_value, model_filter, CAST(reset_at AS TEXT)
 		  FROM api_key_limits
 		 WHERE api_key_id = ?
 		 ORDER BY id ASC
@@ -444,7 +823,7 @@ func (r Repository) usageSummaryByKey(ctx context.Context) (map[string]UsageSumm
 		       COUNT(*) AS request_count,
 		       COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS input_tokens,
 		       COALESCE(SUM(COALESCE(output_tokens, reasoning_tokens, 0)), 0) AS output_tokens,
-		       COALESCE(SUM(COALESCE(cached_input_tokens, 0)), 0) AS cached_input_tokens,
+		       COALESCE(SUM(min(COALESCE(cached_input_tokens, 0), COALESCE(input_tokens, COALESCE(cached_input_tokens, 0)))), 0) AS cached_input_tokens,
 		       COALESCE(SUM(COALESCE(cost_usd, 0)), 0) AS total_cost_usd
 		  FROM request_logs
 		 WHERE api_key_id IS NOT NULL
@@ -481,6 +860,141 @@ func (r Repository) usageSummaryByKey(ctx context.Context) (map[string]UsageSumm
 		}
 	}
 	return summaries, rows.Err()
+}
+
+func (r Repository) usageSummaryByKeyID(ctx context.Context, keyID string) (UsageSummary, error) {
+	var requestCount int
+	var inputTokens int
+	var outputTokens int
+	var cachedInput int
+	var totalCost float64
+	err := r.store.DB().QueryRowContext(ctx, `
+		SELECT COUNT(*) AS request_count,
+		       COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS input_tokens,
+		       COALESCE(SUM(COALESCE(output_tokens, reasoning_tokens, 0)), 0) AS output_tokens,
+		       COALESCE(SUM(min(COALESCE(cached_input_tokens, 0), COALESCE(input_tokens, COALESCE(cached_input_tokens, 0)))), 0) AS cached_input_tokens,
+		       COALESCE(SUM(COALESCE(cost_usd, 0)), 0) AS total_cost_usd
+		  FROM request_logs
+		 WHERE api_key_id = ?
+		   AND request_kind NOT IN ('warmup', 'limit_warmup')
+		   AND deleted_at IS NULL
+	`, keyID).Scan(&requestCount, &inputTokens, &outputTokens, &cachedInput, &totalCost)
+	if err != nil {
+		return UsageSummary{}, fmt.Errorf("api key usage summary: %w", err)
+	}
+	if cachedInput > inputTokens {
+		cachedInput = inputTokens
+	}
+	if cachedInput < 0 {
+		cachedInput = 0
+	}
+	return UsageSummary{
+		RequestCount:      requestCount,
+		TotalTokens:       inputTokens + outputTokens,
+		CachedInputTokens: cachedInput,
+		TotalCostUSD:      totalCost,
+	}, nil
+}
+
+func nullableStringPtr(value sql.NullString) *string {
+	if !value.Valid || value.String == "" {
+		return nil
+	}
+	return &value.String
+}
+
+func sqliteToISO(value string) string {
+	if parsed, err := time.ParseInLocation("2006-01-02 15:04:05", value, time.UTC); err == nil {
+		return parsed.UTC().Format(time.RFC3339)
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.UTC().Format(time.RFC3339)
+	}
+	return value
+}
+
+func maxInt64Local(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func normalizeReservationBudget(value *int64, defaultValue int64) int64 {
+	if value == nil {
+		return defaultValue
+	}
+	if *value < 0 {
+		return 0
+	}
+	if *value > 8192 {
+		return 8192
+	}
+	return *value
+}
+
+func reserveDeltaForLimit(limitType, model, serviceTier string, inputBudget, outputBudget int64) int64 {
+	switch limitType {
+	case "total_tokens":
+		return inputBudget + outputBudget
+	case "input_tokens":
+		return inputBudget
+	case "output_tokens":
+		return outputBudget
+	case "cost_usd":
+		return unknownModelReserveCostMicrodollars(inputBudget, outputBudget)
+	case "credits":
+		return 0
+	default:
+		return 1
+	}
+}
+
+func unknownModelReserveCostMicrodollars(inputBudget, outputBudget int64) int64 {
+	tokenBudget := inputBudget + outputBudget
+	if tokenBudget <= 0 {
+		return 0
+	}
+	return (2_000_000*tokenBudget + 16_383) / 16_384
+}
+
+func actualDeltaForLimit(limitType string, inputTokens, outputTokens, costMicrodollars int64) int64 {
+	switch limitType {
+	case "total_tokens":
+		return inputTokens + outputTokens
+	case "input_tokens":
+		return inputTokens
+	case "output_tokens":
+		return outputTokens
+	case "cost_usd":
+		return costMicrodollars
+	case "credits":
+		return 0
+	default:
+		return 0
+	}
+}
+
+func int64Value(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func nullableInt64(value *int64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func apiKeyLimitExceeded(limit LimitRule) error {
+	message := fmt.Sprintf("API key %s %s limit exceeded", limit.LimitType, limit.LimitWindow)
+	if limit.ModelFilter.Valid && limit.ModelFilter.String != "" {
+		message += " for model " + limit.ModelFilter.String
+	}
+	return errors.New(message)
 }
 
 func replaceAssignmentsTx(ctx context.Context, tx *sql.Tx, keyID string, accountIDs []string) error {

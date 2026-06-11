@@ -1,0 +1,4 @@
+- [x] 1. Add OpenSpec parity requirement for Go dashboard aggregate warm-up exclusion.
+- [x] 2. Update Go dashboard aggregate queries to exclude `warmup` and `limit_warmup` request kinds.
+- [x] 3. Add focused Go repository tests covering activity, trends, and top-error exclusion.
+- [x] 4. Run focused Go dashboard tests and OpenSpec validation for the change.

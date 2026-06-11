@@ -1,0 +1,5 @@
+- [x] 1. Add Go strict text-format validation requirements.
+- [x] 2. Port `enforce_strict_text_format` behavior for Responses `text.format`.
+- [x] 3. Validate Chat Completions `response_format` strict schemas.
+- [x] 4. Add focused tests for invalid strict JSON schemas and non-strict pass-through.
+- [x] 5. Validate focused proxy tests, Go build/tests, and strict OpenSpec.

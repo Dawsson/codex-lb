@@ -24,8 +24,8 @@ the configured power and top-K cutoff.
 
 ### Requirement: Re-authentication-required accounts are not selectable
 
-When an account credential/session is invalidated but the upstream account is
-not known to be disabled, the system MUST mark the account `reauth_required`.
+The system SHALL mark an account `reauth_required` when its credential/session
+is invalidated but the upstream account is not known to be disabled.
 The selector MUST remove `reauth_required` accounts from every routing strategy
 and hard-affinity fallback until the account is re-authenticated. Operator
 pickers that configure single-account routing or account-scoped routing MUST

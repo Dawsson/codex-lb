@@ -45,6 +45,25 @@ func (h Handler) SetupPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "password_already_configured", "Password is already configured")
 		return
 	}
+	if !isLocalRequest(r) {
+		status, err := h.bootstrap.ValidationStatus(r.Context(), payload.BootstrapToken)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+			return
+		}
+		switch status {
+		case "valid":
+		case "unavailable":
+			writeError(w, http.StatusUnauthorized, "bootstrap_unavailable", "Remote bootstrap is disabled until CODEX_LB_DASHBOARD_BOOTSTRAP_TOKEN is configured.")
+			return
+		case "password_already_configured":
+			writeError(w, http.StatusConflict, "password_already_configured", "Password is already configured")
+			return
+		default:
+			writeError(w, http.StatusUnauthorized, "invalid_bootstrap_token", "Invalid dashboard bootstrap token.")
+			return
+		}
+	}
 	password := strings.TrimSpace(payload.Password)
 	if err := validatePassword(password); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_password", err.Error())
@@ -68,7 +87,7 @@ func (h Handler) SetupPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "server_error", "Failed to renew session")
 		return
 	}
-	h.sessions.Put(r.Context(), sessionAuthenticatedKey, true)
+	h.markPasswordVerified(r)
 	response, err := h.sessionResponse(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", err.Error())
@@ -124,6 +143,12 @@ func (h Handler) RemovePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "server_error", err.Error())
 		return
 	}
+	token, err := h.bootstrap.EnsureAutoToken(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "server_error", err.Error())
+		return
+	}
+	h.bootstrap.LogToken(token, "password-removed")
 	_ = h.sessions.Destroy(r.Context())
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 }
@@ -156,8 +181,12 @@ func (h Handler) requirePasswordManagementSession(w http.ResponseWriter, r *http
 		writeError(w, http.StatusUnauthorized, "authentication_required", "Password-authenticated session is required")
 		return errPasswordSessionRequired
 	}
-	if !h.sessions.GetBool(r.Context(), sessionAuthenticatedKey) {
+	if !h.isPasswordVerified(r) {
 		writeError(w, http.StatusUnauthorized, "authentication_required", "Password-authenticated session is required")
+		return errPasswordSessionRequired
+	}
+	if settings.TOTPRequiredOnLogin && settings.TOTPConfigured && !h.isTOTPVerified(r) {
+		writeError(w, http.StatusUnauthorized, "totp_required", "TOTP verification is required for dashboard access")
 		return errPasswordSessionRequired
 	}
 	return nil

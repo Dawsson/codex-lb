@@ -1,0 +1,5 @@
+- [x] 1. Add Go strict function-tool validation requirements.
+- [x] 2. Port strict JSON schema walker for function tool parameters.
+- [x] 3. Wire validation into Responses and Chat Completions request handling.
+- [x] 4. Add focused tests for native Responses and nested Chat tool errors.
+- [x] 5. Validate focused proxy tests, Go build/tests, and strict OpenSpec.

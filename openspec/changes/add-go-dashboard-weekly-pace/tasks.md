@@ -1,0 +1,5 @@
+- [x] 1. Add Go dashboard weekly-credit pace requirements.
+- [x] 2. Add dashboard settings query support for weekly pace working days.
+- [x] 3. Port weekly pace schedule, freshness, burn forecast, projection, status, and confidence logic.
+- [x] 4. Wire weekly pace into overview/projections responses with focused tests.
+- [x] 5. Validate focused dashboard tests, Go build/tests, and strict OpenSpec.

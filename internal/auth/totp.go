@@ -23,8 +23,8 @@ type totpVerifyRequest struct {
 }
 
 type totpSetupStartResponse struct {
-	Secret      string `json:"secret"`
-	OtpauthURI  string `json:"otpauthUri"`
+	Secret       string `json:"secret"`
+	OtpauthURI   string `json:"otpauthUri"`
 	QRSvgDataURI string `json:"qrSvgDataUri"`
 }
 
@@ -117,10 +117,15 @@ func (h Handler) VerifyTOTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "totp_not_configured", "TOTP is not configured")
 		return
 	}
+	if !h.isPasswordVerified(r) {
+		writeError(w, http.StatusUnauthorized, "authentication_required", "Password-authenticated session is required")
+		return
+	}
 	if !totp.Validate(payload.Code, secret) {
 		writeError(w, http.StatusUnauthorized, "invalid_totp_code", "Invalid TOTP code")
 		return
 	}
+	h.markTOTPVerified(r)
 	response, err := h.sessionResponse(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", err.Error())

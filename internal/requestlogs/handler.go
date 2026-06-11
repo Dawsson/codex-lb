@@ -20,7 +20,7 @@ type Filters struct {
 	Search       string
 	AccountIDs   []string
 	APIKeyIDs    []string
-	Statuses     []string
+	StatusFilter StatusFilter
 	ModelOptions []string
 	Since        string
 	Until        string
@@ -65,6 +65,7 @@ type logEntry struct {
 	CostUSD              *float64       `json:"costUsd"`
 	CostBreakdown        map[string]any `json:"costBreakdown"`
 	LatencyMS            *int64         `json:"latencyMs"`
+	LatencyFirstTokenMS  *int64         `json:"latencyFirstTokenMs"`
 }
 
 type optionsResponse struct {
@@ -124,11 +125,12 @@ func (h Handler) Options(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	statuses, err := h.repo.Statuses(r.Context(), filters)
+	statusRows, err := h.repo.Statuses(r.Context(), filters)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	statuses := normalizeStatusOptions(statusRows)
 	models := make([]modelOption, 0, len(modelRows))
 	for _, row := range modelRows {
 		models = append(models, modelOption{Model: row.Model, ReasoningEffort: nullString(row.ReasoningEffort)})
@@ -164,15 +166,27 @@ func parseFilters(r *http.Request) Filters {
 		Search:       query.Get("search"),
 		AccountIDs:   query["accountId"],
 		APIKeyIDs:    query["apiKeyId"],
-		Statuses:     query["status"],
+		StatusFilter: MapStatusFilter(query["status"]),
 		ModelOptions: query["modelOption"],
 		Since:        query.Get("since"),
 		Until:        query.Get("until"),
 	}
 }
 
+func normalizeStatusOptions(rows []StatusRow) []string {
+	statuses := make([]string, 0, len(rows))
+	errorCodes := make([]*string, 0, len(rows))
+	for _, row := range rows {
+		statuses = append(statuses, row.Status)
+		errorCodes = append(errorCodes, nullString(row.ErrorCode))
+	}
+	return NormalizeStatusValues(statuses, errorCodes)
+}
+
 func mapEntry(entry Entry) logEntry {
-	tokens := nullInt64Sum(entry.InputTokens, entry.OutputTokens)
+	outputTokens := outputTokensFromEntry(entry)
+	cachedInputTokens := cachedInputTokensFromEntry(entry)
+	tokens := totalTokensFromEntry(entry, outputTokens)
 	requestedAt := "1970-01-01T00:00:00Z"
 	if converted := platform.SQLiteTimeToISO(entry.RequestedAt); converted != nil {
 		requestedAt = *converted
@@ -184,7 +198,7 @@ func mapEntry(entry Entry) logEntry {
 		APIKeyName:           nullString(entry.APIKeyName),
 		APIKeyID:             nullString(entry.APIKeyID),
 		RequestID:            entry.RequestID,
-		RequestKind:          entry.RequestKind,
+		RequestKind:          NormalizeRequestKind(entry.RequestKind),
 		Model:                entry.Model,
 		Source:               nullString(entry.Source),
 		Transport:            nullString(entry.Transport),
@@ -193,7 +207,7 @@ func mapEntry(entry Entry) logEntry {
 		ServiceTier:          nullString(entry.ServiceTier),
 		RequestedServiceTier: nullString(entry.RequestedServiceTier),
 		ActualServiceTier:    nullString(entry.ActualServiceTier),
-		Status:               entry.Status,
+		Status:               NormalizeLogStatus(entry.Status, nullString(entry.ErrorCode)),
 		ErrorCode:            nullString(entry.ErrorCode),
 		ErrorMessage:         nullString(entry.ErrorMessage),
 		FailurePhase:         nullString(entry.FailurePhase),
@@ -204,12 +218,13 @@ func mapEntry(entry Entry) logEntry {
 		BridgeStage:          nullString(entry.BridgeStage),
 		Tokens:               tokens,
 		InputTokens:          nullInt64(entry.InputTokens),
-		OutputTokens:         nullInt64(entry.OutputTokens),
-		CachedInputTokens:    nullInt64(entry.CachedInputTokens),
+		OutputTokens:         outputTokens,
+		CachedInputTokens:    cachedInputTokens,
 		ReasoningEffort:      nullString(entry.ReasoningEffort),
 		CostUSD:              nullFloat64(entry.CostUSD),
-		CostBreakdown:        map[string]any{"inputUsd": nil, "cachedInputUsd": nil, "outputUsd": nil, "totalUsd": nullFloat64(entry.CostUSD)},
+		CostBreakdown:        costBreakdownFromEntry(entry),
 		LatencyMS:            nullInt64(entry.LatencyMS),
+		LatencyFirstTokenMS:  nullInt64(entry.LatencyFirstTokenMS),
 	}
 }
 
@@ -258,6 +273,137 @@ func nullInt64Sum(values ...sql.NullInt64) *int64 {
 		return nil
 	}
 	return &total
+}
+
+func outputTokensFromEntry(entry Entry) *int64 {
+	if entry.OutputTokens.Valid {
+		return &entry.OutputTokens.Int64
+	}
+	if entry.ReasoningTokens.Valid {
+		return &entry.ReasoningTokens.Int64
+	}
+	return nil
+}
+
+func cachedInputTokensFromEntry(entry Entry) *int64 {
+	if !entry.CachedInputTokens.Valid {
+		return nil
+	}
+	cached := entry.CachedInputTokens.Int64
+	if entry.InputTokens.Valid && cached > entry.InputTokens.Int64 {
+		cached = entry.InputTokens.Int64
+	}
+	if cached < 0 {
+		cached = 0
+	}
+	return &cached
+}
+
+func totalTokensFromEntry(entry Entry, outputTokens *int64) *int64 {
+	var total int64
+	var found bool
+	if entry.InputTokens.Valid {
+		total += entry.InputTokens.Int64
+		found = true
+	}
+	if outputTokens != nil {
+		total += *outputTokens
+		found = true
+	}
+	if !found {
+		return nil
+	}
+	return &total
+}
+
+func costBreakdownFromEntry(entry Entry) map[string]any {
+	breakdown := costBreakdownFromLogEntry(entry, 6)
+	return map[string]any{
+		"inputUsd":       breakdown.inputUSD,
+		"cachedInputUsd": breakdown.cachedInputUSD,
+		"outputUsd":      breakdown.outputUSD,
+		"totalUsd":       breakdown.totalUSD,
+	}
+}
+
+func costBreakdownFromLogEntry(entry Entry, precision int) costBreakdown {
+	var full *costBreakdown
+	var inputUSD *float64
+	var cachedInputUSD *float64
+	var outputUSD *float64
+	var rawTotalUSD *float64
+	var totalUSD *float64
+	price, ok := priceForModel(entry.Model)
+	if ok {
+		inputTokens := nullInt64(entry.InputTokens)
+		cachedTokens := cachedInputTokensFromEntry(entry)
+		outputTokens := outputTokensFromEntry(entry)
+		serviceTier := ""
+		if entry.ServiceTier.Valid {
+			serviceTier = entry.ServiceTier.String
+		}
+		if inputTokens != nil && outputTokens != nil {
+			fullUsage := usageTokens{
+				inputTokens:       float64(*inputTokens),
+				outputTokens:      float64(*outputTokens),
+				cachedInputTokens: 0,
+			}
+			if cachedTokens != nil {
+				fullUsage.cachedInputTokens = float64(*cachedTokens)
+			}
+			calculated := calculateCostBreakdown(fullUsage, price, serviceTier, &precision)
+			full = &calculated
+			rawTotalUSD = calculated.rawTotalUSD
+			totalUSD = calculated.totalUSD
+		}
+		if inputTokens != nil && cachedTokens != nil {
+			inputOnly := calculateCostBreakdown(usageTokens{
+				inputTokens:       float64(*inputTokens),
+				outputTokens:      0,
+				cachedInputTokens: float64(*cachedTokens),
+			}, price, serviceTier, &precision)
+			inputUSD = inputOnly.inputUSD
+			cachedInputUSD = inputOnly.cachedInputUSD
+		}
+		if outputTokens != nil {
+			outputUsage := usageTokens{outputTokens: float64(*outputTokens)}
+			if inputTokens != nil {
+				outputUsage.inputTokens = float64(*inputTokens)
+			}
+			if cachedTokens != nil {
+				outputUsage.cachedInputTokens = float64(*cachedTokens)
+			}
+			outputOnly := calculateCostBreakdown(outputUsage, price, serviceTier, &precision)
+			outputUSD = outputOnly.outputUSD
+		}
+	}
+
+	if entry.CostUSD.Valid {
+		persisted := roundTo(entry.CostUSD.Float64, precision)
+		persistedRaw := entry.CostUSD.Float64
+		if !totalsMatch(&persistedRaw, rawTotalUSD, precision) {
+			return costBreakdown{totalUSD: &persisted}
+		}
+		return costBreakdown{
+			inputUSD:       inputUSD,
+			cachedInputUSD: cachedInputUSD,
+			outputUSD:      outputUSD,
+			totalUSD:       &persisted,
+		}
+	}
+	if full != nil {
+		return costBreakdown{
+			inputUSD:       inputUSD,
+			cachedInputUSD: cachedInputUSD,
+			outputUSD:      outputUSD,
+			totalUSD:       totalUSD,
+		}
+	}
+	return costBreakdown{
+		inputUSD:       inputUSD,
+		cachedInputUSD: cachedInputUSD,
+		outputUSD:      outputUSD,
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

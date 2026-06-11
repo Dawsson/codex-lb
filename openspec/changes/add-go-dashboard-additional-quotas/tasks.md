@@ -1,0 +1,4 @@
+- [x] 1. Add dashboard additional-quota rollup requirement.
+- [x] 2. Roll up distinct additional quotas from account summaries into overview response.
+- [x] 3. Add focused tests for de-duplication and deterministic ordering.
+- [x] 4. Validate focused dashboard tests, Go build/tests, and strict OpenSpec.

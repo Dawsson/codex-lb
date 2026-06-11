@@ -32,16 +32,18 @@ func NewModelsHandler(apiKeysRepo apikeys.Repository, settingsRepo settings.Repo
 
 // CodexModels handles GET /backend-api/codex/models, porting
 // _build_codex_models_response.
-//
-// Simplification: request-limit reservation/release
-// (_enforce_request_limits / _release_reservation) is not yet ported; it
-// lands with the API-key rate-limit enforcement work.
 func (h ModelsHandler) CodexModels(w http.ResponseWriter, r *http.Request) {
 	apiKey, err := ValidateProxyAPIKey(r.Context(), h.apiKeys, h.settings, r)
 	if err != nil {
 		writeProxyError(w, err)
 		return
 	}
+	reservation, err := h.enforceModelListRequestLimit(r, apiKey)
+	if err != nil {
+		writeProxyError(w, err)
+		return
+	}
+	defer h.releaseReservation(r, reservation)
 
 	allowedModels := allowedModelsForAPIKey(apiKey)
 	visibilityAllowedModels := codexModelVisibilityAllowedModels(apiKey)
@@ -68,14 +70,18 @@ func (h ModelsHandler) CodexModels(w http.ResponseWriter, r *http.Request) {
 }
 
 // V1Models handles GET /v1/models, porting _build_models_response.
-//
-// Simplification: see CodexModels.
 func (h ModelsHandler) V1Models(w http.ResponseWriter, r *http.Request) {
 	apiKey, err := ValidateProxyAPIKey(r.Context(), h.apiKeys, h.settings, r)
 	if err != nil {
 		writeProxyError(w, err)
 		return
 	}
+	reservation, err := h.enforceModelListRequestLimit(r, apiKey)
+	if err != nil {
+		writeProxyError(w, err)
+		return
+	}
+	defer h.releaseReservation(r, reservation)
 
 	allowedModels := allowedModelsForAPIKey(apiKey)
 	created := time.Now().Unix()
@@ -111,6 +117,24 @@ func (h ModelsHandler) V1Models(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"object": "list", "data": items})
+}
+
+func (h ModelsHandler) enforceModelListRequestLimit(r *http.Request, apiKey *ApiKeyData) (*apikeys.UsageReservation, error) {
+	if apiKey == nil {
+		return nil, nil
+	}
+	reservation, err := h.apiKeys.EnforceRequestLimits(r.Context(), apiKey.ID, "", "", apikeys.UsageBudget{})
+	if err != nil {
+		return nil, NewProxyRateLimitError(err.Error())
+	}
+	return reservation, nil
+}
+
+func (h ModelsHandler) releaseReservation(r *http.Request, reservation *apikeys.UsageReservation) {
+	if reservation == nil {
+		return
+	}
+	_ = h.apiKeys.ReleaseUsageReservation(r.Context(), reservation.ID)
 }
 
 func writeProxyError(w http.ResponseWriter, err error) {

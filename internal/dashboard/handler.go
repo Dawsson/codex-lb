@@ -1,9 +1,11 @@
 package dashboard
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/soju06/codex-lb/internal/accounts"
@@ -11,9 +13,11 @@ import (
 )
 
 type Handler struct {
-	repo     Repository
-	accounts accounts.Handler
-	overview *cache.TTL[overviewResponse]
+	repo                        Repository
+	accounts                    accounts.Handler
+	overview                    *cache.TTL[overviewResponse]
+	usageRefreshIntervalSeconds int
+	weeklyPaceEnabled           bool
 }
 
 type timeframe struct {
@@ -88,11 +92,17 @@ type overviewWindows struct {
 	Secondary *usageWindow `json:"secondary"`
 }
 
-func NewHandler(repo Repository, accountHandler accounts.Handler) Handler {
+func NewHandler(repo Repository, accountHandler accounts.Handler, usageRefreshInterval ...time.Duration) Handler {
+	intervalSeconds := 60
+	if len(usageRefreshInterval) > 0 && usageRefreshInterval[0] > 0 {
+		intervalSeconds = int(usageRefreshInterval[0].Seconds())
+	}
 	return Handler{
-		repo:     repo,
-		accounts: accountHandler,
-		overview: cache.NewTTL[overviewResponse](2 * time.Second),
+		repo:                        repo,
+		accounts:                    accountHandler,
+		overview:                    cache.NewTTL[overviewResponse](2 * time.Second),
+		usageRefreshIntervalSeconds: intervalSeconds,
+		weeklyPaceEnabled:           true,
 	}
 }
 
@@ -109,6 +119,7 @@ func (h Handler) Overview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	sortOverviewAccounts(accountSummaries)
 	activity, err := h.repo.AggregateActivitySince(r.Context(), since)
 	if err != nil {
 		writeError(w, err)
@@ -124,9 +135,24 @@ func (h Handler) Overview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	lastSyncAt, err := h.repo.LatestSyncAt(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	depletionPrimary, depletionSecondary, err := h.depletion(r.Context(), time.Now().UTC())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	weeklyPace, err := h.weeklyCreditPace(r, accountSummaries, time.Now().UTC())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 
 	response := overviewResponse{
-		LastSyncAt: nil,
+		LastSyncAt: lastSyncAt,
 		Timeframe:  tf,
 		Accounts:   accountSummaries,
 		Summary: overviewSummary{
@@ -147,21 +173,126 @@ func (h Handler) Overview(w http.ResponseWriter, r *http.Request) {
 			Secondary: ptrUsageWindow(aggregateUsageWindow(accountSummaries, "secondary")),
 		},
 		Trends:             buildTrends(trendRows),
-		AdditionalQuotas:   []any{},
-		DepletionPrimary:   nil,
-		DepletionSecondary: nil,
-		WeeklyCreditPace:   nil,
+		AdditionalQuotas:   overviewAdditionalQuotas(accountSummaries),
+		DepletionPrimary:   depletionPrimary,
+		DepletionSecondary: depletionSecondary,
+		WeeklyCreditPace:   weeklyPace,
 	}
 	h.overview.Set(tf.Key, response)
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (h Handler) Projections(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"depletionPrimary":   nil,
-		"depletionSecondary": nil,
-		"weeklyCreditPace":   nil,
+func sortOverviewAccounts(items []accounts.AccountSummary) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := primaryCapacityValue(items[i])
+		right := primaryCapacityValue(items[j])
+		if left == right {
+			return false
+		}
+		return left > right
 	})
+}
+
+func primaryCapacityValue(item accounts.AccountSummary) float64 {
+	if item.CapacityCreditsPrimary == nil {
+		return 0
+	}
+	return *item.CapacityCreditsPrimary
+}
+
+func overviewAdditionalQuotas(items []accounts.AccountSummary) []any {
+	type keyedQuota struct {
+		key   string
+		quota accounts.AdditionalQuotaSummary
+	}
+	seen := map[string]accounts.AdditionalQuotaSummary{}
+	for _, account := range items {
+		for _, quota := range account.AdditionalQuotas {
+			key := additionalQuotaKey(quota)
+			if _, exists := seen[key]; !exists {
+				seen[key] = quota
+			}
+		}
+	}
+	ordered := make([]keyedQuota, 0, len(seen))
+	for key, quota := range seen {
+		ordered = append(ordered, keyedQuota{key: key, quota: quota})
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].key < ordered[j].key
+	})
+	result := make([]any, 0, len(ordered))
+	for _, item := range ordered {
+		result = append(result, item.quota)
+	}
+	return result
+}
+
+func additionalQuotaKey(quota accounts.AdditionalQuotaSummary) string {
+	key := ""
+	if quota.QuotaKey != nil {
+		key = *quota.QuotaKey
+	}
+	label := ""
+	if quota.DisplayLabel != nil {
+		label = *quota.DisplayLabel
+	}
+	return key + "\x00" + quota.LimitName + "\x00" + quota.MeteredFeature + "\x00" + quota.RoutingPolicy + "\x00" + label
+}
+
+type projectionsResponse struct {
+	DepletionPrimary   any `json:"depletionPrimary"`
+	DepletionSecondary any `json:"depletionSecondary"`
+	WeeklyCreditPace   any `json:"weeklyCreditPace"`
+}
+
+func (h Handler) Projections(w http.ResponseWriter, r *http.Request) {
+	primary, secondary, err := h.depletion(r.Context(), time.Now().UTC())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	weeklyPace, err := h.weeklyCreditPace(r, nil, time.Now().UTC())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, projectionsResponse{
+		DepletionPrimary:   primary,
+		DepletionSecondary: secondary,
+		WeeklyCreditPace:   weeklyPace,
+	})
+}
+
+func (h Handler) depletion(ctx context.Context, now time.Time) (*depletionResponse, *depletionResponse, error) {
+	rows, err := h.repo.UsageHistorySince(ctx, now.Add(-8*24*time.Hour))
+	if err != nil {
+		return nil, nil, err
+	}
+	primary, secondary := buildDepletionByWindow(rows, now)
+	return primary, secondary, nil
+}
+
+func (h Handler) weeklyCreditPace(r *http.Request, summaries []accounts.AccountSummary, now time.Time) (*weeklyCreditPaceResponse, error) {
+	if !h.weeklyPaceEnabled {
+		return nil, nil
+	}
+	if summaries == nil {
+		var err error
+		summaries, err = h.accounts.Summaries(r)
+		if err != nil {
+			return nil, err
+		}
+	}
+	rows, err := h.repo.UsageHistorySince(r.Context(), now.Add(-8*24*time.Hour))
+	if err != nil {
+		return nil, err
+	}
+	workingDaysRaw, err := h.repo.WeeklyPaceWorkingDays(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	return buildWeeklyCreditPace(summaries, rows, now, h.usageRefreshIntervalSeconds, parseWeeklyPaceWorkingDays(workingDaysRaw)), nil
 }
 
 func resolveTimeframe(key string) timeframe {

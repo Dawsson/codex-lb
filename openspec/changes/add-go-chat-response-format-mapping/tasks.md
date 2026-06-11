@@ -1,0 +1,6 @@
+- [x] 1. Add Go chat response-format mapping requirements.
+- [x] 2. Port `response_format` string/object conversion to Responses `text.format`.
+- [x] 3. Reject conflicting `text.format`, missing `json_schema`, and unsupported types.
+- [x] 4. Wire mapping before streaming and non-streaming upstream paths.
+- [x] 5. Add focused tests for json_schema mapping, conflict rejection, missing schema rejection, and string mapping.
+- [x] 6. Validate focused proxy tests, Go build/tests, and strict OpenSpec.

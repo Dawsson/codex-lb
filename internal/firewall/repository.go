@@ -47,6 +47,31 @@ func (r Repository) List(ctx context.Context) ([]Entry, error) {
 	return httputil.EmptySlice(entries), rows.Err()
 }
 
+func (r Repository) IsAllowed(ctx context.Context, ipAddress string) (bool, error) {
+	normalized, err := normalizeIP(ipAddress)
+	if err != nil {
+		return false, nil
+	}
+	var count int
+	if err := r.store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM api_firewall_allowlist`).Scan(&count); err != nil {
+		return false, fmt.Errorf("count firewall ips: %w", err)
+	}
+	if count == 0 {
+		return true, nil
+	}
+	var exists int
+	err = r.store.DB().QueryRowContext(ctx, `
+		SELECT 1 FROM api_firewall_allowlist WHERE ip_address = ? LIMIT 1
+	`, normalized).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check firewall allowlist: %w", err)
+	}
+	return true, nil
+}
+
 func (r Repository) Add(ctx context.Context, ipAddress string) (Entry, error) {
 	normalized, err := normalizeIP(ipAddress)
 	if err != nil {

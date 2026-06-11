@@ -1,26 +1,30 @@
 ## 1. Repository
 
-- [ ] `internal/limitwarmup` repository: CRUD for `account_limit_warmups`,
+- [x] `internal/limitwarmup` repository: CRUD for `account_limit_warmups`,
       uniqueness on (account_id, window, reset_at).
 
 ## 2. Service
 
-- [ ] Port `LimitWarmupService.run_after_usage_refresh` decision logic
+- [x] Port `LimitWarmupService.run_after_usage_refresh` decision logic
       (which accounts/windows qualify for warmup).
-- [ ] Port `StreamingLimitWarmupSender` using the streaming proxy client
+- [x] Port `StreamingLimitWarmupSender` using the streaming proxy client
       with `x-codex-lb-limit-warmup` header and "Reply with OK only."
       instructions.
-- [ ] Preserve `_MAX_CONCURRENT_WARMUP_SENDS = 4` concurrency bound.
-- [ ] Port terminal event / quota error code handling
+- [x] Preserve `_MAX_CONCURRENT_WARMUP_SENDS = 4` concurrency bound.
+- [x] Port terminal event / quota error code handling
       (`_TERMINAL_ERROR_EVENTS`, `_QUOTA_ERROR_CODES`).
+  - [x] Service maps quota error codes to `quota_still_exhausted`.
+  - [x] Streaming sender parses upstream SSE terminal events.
 
 ## 3. Wiring
 
-- [ ] Hook into usage refresh scheduler post-write.
-- [ ] `PUT /api/accounts/{accountID}/limit-warmup` toggle endpoint.
-- [ ] Quota planner `warm-now` action.
+- [x] Hook into usage refresh scheduler post-write.
+- [x] `PUT /api/accounts/{accountID}/limit-warmup` toggle endpoint.
+- [x] Quota planner `warm-now` action.
+  - [x] Direct account probe path.
+  - [ ] API-key reservation enforcement for `apiKeyId` remains tracked under API-key reservation parity.
 
 ## 4. Validation
 
-- [ ] `go test ./...`
+- [x] `go test ./...`
 - [ ] `openspec validate add-go-limit-warmup --strict`

@@ -33,6 +33,13 @@ type Entry struct {
 	UpdatedAt   sql.NullString
 }
 
+type Session struct {
+	Key       string
+	Kind      string
+	AccountID string
+	UpdatedAt string
+}
+
 func NewRepository(store *db.Store) Repository {
 	return Repository{store: store}
 }
@@ -55,6 +62,85 @@ func (r Repository) CacheAffinityMaxAgeSeconds(ctx context.Context) (int, error)
 		return 1800, nil
 	}
 	return ttl, nil
+}
+
+func (r Repository) GetAccountID(ctx context.Context, key, kind string, maxAgeSeconds *int) (string, error) {
+	row, err := r.GetEntry(ctx, key, kind)
+	if err != nil || row == nil {
+		return "", err
+	}
+	if maxAgeSeconds != nil && *maxAgeSeconds > 0 {
+		cutoff := time.Now().UTC().Add(-time.Duration(*maxAgeSeconds) * time.Second)
+		updatedAt, parseErr := parseStickySessionTime(row.UpdatedAt)
+		if parseErr != nil {
+			return "", parseErr
+		}
+		if updatedAt.Before(cutoff) {
+			_, deleteErr := r.Delete(ctx, key, kind)
+			if deleteErr != nil {
+				return "", deleteErr
+			}
+			return "", nil
+		}
+	}
+	return row.AccountID, nil
+}
+
+func parseStickySessionTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	for _, layout := range []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z07:00",
+		time.RFC3339Nano,
+	} {
+		parsed, err := time.Parse(layout, value)
+		if err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("parse sqlite time %q", value)
+}
+
+func (r Repository) GetEntry(ctx context.Context, key, kind string) (*Session, error) {
+	key = strings.TrimSpace(key)
+	kind = strings.TrimSpace(kind)
+	if key == "" || kind == "" {
+		return nil, nil
+	}
+	var row Session
+	err := r.store.DB().QueryRowContext(ctx, `
+		SELECT key, kind, account_id, updated_at
+		  FROM sticky_sessions
+		 WHERE key = ? AND kind = ?
+		 LIMIT 1
+	`, key, kind).Scan(&row.Key, &row.Kind, &row.AccountID, &row.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get sticky session: %w", err)
+	}
+	return &row, nil
+}
+
+func (r Repository) Upsert(ctx context.Context, key, accountID, kind string) error {
+	key = strings.TrimSpace(key)
+	accountID = strings.TrimSpace(accountID)
+	kind = strings.TrimSpace(kind)
+	if key == "" || accountID == "" || kind == "" {
+		return nil
+	}
+	_, err := r.store.DB().ExecContext(ctx, `
+		INSERT INTO sticky_sessions (key, kind, account_id, created_at, updated_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(key, kind) DO UPDATE SET
+			account_id = excluded.account_id,
+			updated_at = CURRENT_TIMESTAMP
+	`, key, kind, accountID)
+	if err != nil {
+		return fmt.Errorf("upsert sticky session: %w", err)
+	}
+	return nil
 }
 
 func (r Repository) CountStalePromptCache(ctx context.Context, staleCutoff string) (int, error) {

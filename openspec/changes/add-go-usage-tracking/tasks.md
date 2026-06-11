@@ -18,8 +18,8 @@
 - [x] `RequestLogsRepository.AggregateCostMetrics(since)`: cost/token/error
       aggregate query backing the summary endpoint's `cost`/`metrics`
       fields.
-- [ ] `AdditionalUsageRepository`: latest/insert for additional quota keys
-      (deferred -- not required by `/api/usage/{summary,history,window}`).
+- [x] `AdditionalUsageRepository`: latest/insert/list/delete for additional
+      quota keys used by Spark/additional-quota routing.
 
 ## 3. API endpoints
 
@@ -33,15 +33,27 @@
 
 - [ ] Port `UsageUpdater.refresh_accounts` (calls upstream OpenAI usage
       endpoints per account using stored credentials).
-- [ ] Port `reconcile_recoverable_account_statuses`.
-- [ ] Leader-election gated loop with configurable interval
+  - [x] Primary/secondary usage fetch and insert.
+  - [x] Additional quota usage fetch/merge/canonicalize/insert and stale row
+        pruning.
+  - [x] Additional-only freshness cache parity.
+  - [x] Deactivate or mark reauth-required for permanent usage fetch errors.
+  - [x] Identity metadata sync from usage payload.
+  - [x] Auth refresh retry on 401 usage fetch failures.
+  - [x] Usage-payload status recovery.
+- [x] Port `reconcile_recoverable_account_statuses`.
+- [x] Leader-election gated loop with configurable interval
       (`usage_refresh_interval_seconds`, `usage_refresh_enabled`).
-- [ ] Invalidate rate-limit header cache and account selection cache after
+- [x] Invalidate rate-limit header cache and account selection cache after
       a successful refresh.
-- [ ] Wire start/stop into `cmd/codex-lb-go/main.go` lifecycle.
+- [x] Wire start/stop into `cmd/codex-lb-go/main.go` lifecycle.
 
 ## 5. Validation
 
+- [x] Focused `go test ./internal/usagerefresh ./internal/usage
+      ./internal/accounts ./cmd/codex-lb-go` including scheduler start/stop and
+      reconciliation unit tests.
 - [ ] `go test ./...` including scheduler start/stop and reconciliation
       unit tests with fake clock/repository.
-- [ ] `openspec validate add-go-usage-tracking --strict`
+- [x] `go build ./... && go test ./...`
+- [x] `openspec validate add-go-usage-tracking --strict`

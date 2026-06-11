@@ -14,17 +14,19 @@ import (
 // ApiKeyData mirrors the subset of app.modules.api_keys.service.ApiKeyData
 // used by the proxy request path.
 type ApiKeyData struct {
-	ID                  string
-	Name                string
-	KeyPrefix           string
-	AllowedModels       []string
-	ApplyToCodexModel   bool
-	EnforcedModel       *string
-	EnforcedReasoning   *string
-	EnforcedServiceTier *string
-	TrafficClass        string
-	ExpiresAt           *time.Time
-	Limits              []apikeys.LimitRule
+	ID                            string
+	Name                          string
+	KeyPrefix                     string
+	AllowedModels                 []string
+	ApplyToCodexModel             bool
+	EnforcedModel                 *string
+	EnforcedReasoning             *string
+	EnforcedServiceTier           *string
+	TrafficClass                  string
+	ExpiresAt                     *time.Time
+	Limits                        []apikeys.LimitRule
+	AccountAssignmentScopeEnabled bool
+	AssignedAccountIDs            []string
 }
 
 // ValidateProxyAPIKey ports app.core.auth.dependencies.validate_proxy_api_key
@@ -87,13 +89,15 @@ func validateAPIKeyToken(ctx context.Context, repo apikeys.Repository, token str
 
 func toAPIKeyData(record *apikeys.KeyRecord) *ApiKeyData {
 	data := &ApiKeyData{
-		ID:                record.ID,
-		Name:              record.Name,
-		KeyPrefix:         record.KeyPrefix,
-		AllowedModels:     record.AllowedModelsList(),
-		ApplyToCodexModel: record.ApplyToCodexModel,
-		TrafficClass:      record.TrafficClass,
-		Limits:            record.Limits,
+		ID:                            record.ID,
+		Name:                          record.Name,
+		KeyPrefix:                     record.KeyPrefix,
+		AllowedModels:                 record.AllowedModelsList(),
+		ApplyToCodexModel:             record.ApplyToCodexModel,
+		TrafficClass:                  record.TrafficClass,
+		Limits:                        record.Limits,
+		AccountAssignmentScopeEnabled: record.AccountAssignmentScopeEnabled,
+		AssignedAccountIDs:            append([]string(nil), record.AssignedAccountIDs...),
 	}
 	if record.EnforcedModel.Valid {
 		value := record.EnforcedModel.String

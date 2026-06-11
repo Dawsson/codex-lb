@@ -34,6 +34,21 @@ selected account's upstream.
 - **THEN** the Go API closes the corresponding upstream connection and does
   not leak the in-flight request slot.
 
+#### Scenario: WebSocket rejects malformed client frames before upstream selection
+
+- **WHEN** a WebSocket responses client sends malformed JSON or a non-object
+  JSON payload
+- **THEN** the Go API emits an OpenAI-style `error` event with an
+  `invalid_request_error` type and does not attempt upstream account
+  selection.
+
+#### Scenario: WebSocket requires an active response.create request
+
+- **WHEN** a WebSocket responses client sends a JSON object whose `type` is
+  not `response.create` before an upstream session exists
+- **THEN** the Go API emits an OpenAI-style `error` event explaining that the
+  connection has no active upstream session.
+
 ### Requirement: Go proxy supports warmup requests
 
 The Go API SHALL expose `POST /v1/warmup` and `POST /v1/warmup/{mode}` to

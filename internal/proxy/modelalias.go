@@ -64,6 +64,21 @@ func ResolveModelAlias(model string) string {
 	return canonical
 }
 
+// ResolveModelAliasParts exposes alias parsing for request policy helpers.
+func ResolveModelAliasParts(model string) (canonical, reasoning, tier string) {
+	base, effort, serviceTier, ok := resolveModelAliasParts(model)
+	if !ok {
+		return "", "", ""
+	}
+	if effort != nil {
+		reasoning = *effort
+	}
+	if serviceTier != nil {
+		tier = *serviceTier
+	}
+	return base, reasoning, tier
+}
+
 // resolveModelAliasParts ports request_policy._resolve_model_alias_parts.
 func resolveModelAliasParts(model string) (canonical string, effort *string, serviceTier *string, ok bool) {
 	normalized := strings.ToLower(strings.TrimSpace(model))

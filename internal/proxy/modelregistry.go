@@ -222,6 +222,73 @@ func (m *ModelRegistry) GetModelsWithFallback() map[string]UpstreamModel {
 	return m.bootstrapModels
 }
 
+func (m *ModelRegistry) NeedsRefresh() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.snapshot == nil {
+		return true
+	}
+	return time.Since(m.snapshot.FetchedAt) >= m.ttl
+}
+
+func (m *ModelRegistry) Update(perPlanResults map[string][]UpstreamModel) {
+	if len(perPlanResults) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	models := map[string]UpstreamModel{}
+	modelPlans := map[string]map[string]struct{}{}
+	if m.snapshot != nil {
+		refreshedPlans := map[string]struct{}{}
+		for plan := range perPlanResults {
+			refreshedPlans[plan] = struct{}{}
+		}
+		for plan, slugs := range m.snapshot.PlanModels {
+			if _, refreshed := refreshedPlans[plan]; refreshed {
+				continue
+			}
+			for slug := range slugs {
+				if model, ok := m.snapshot.Models[slug]; ok {
+					models[slug] = model
+					if modelPlans[slug] == nil {
+						modelPlans[slug] = map[string]struct{}{}
+					}
+					modelPlans[slug][plan] = struct{}{}
+				}
+			}
+		}
+	}
+	for plan, planModels := range perPlanResults {
+		for _, model := range planModels {
+			if model.Slug == "" {
+				continue
+			}
+			models[model.Slug] = model
+			if modelPlans[model.Slug] == nil {
+				modelPlans[model.Slug] = map[string]struct{}{}
+			}
+			modelPlans[model.Slug][plan] = struct{}{}
+		}
+	}
+	planModels := map[string]map[string]struct{}{}
+	for slug, plans := range modelPlans {
+		for plan := range plans {
+			if planModels[plan] == nil {
+				planModels[plan] = map[string]struct{}{}
+			}
+			planModels[plan][slug] = struct{}{}
+		}
+	}
+	m.snapshot = &ModelRegistrySnapshot{
+		Models:     models,
+		ModelPlans: modelPlans,
+		PlanModels: planModels,
+		FetchedAt:  time.Now().UTC(),
+	}
+}
+
 // PrefersWebsockets ports prefers_websockets.
 func (m *ModelRegistry) PrefersWebsockets(slug string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(slug))
@@ -280,6 +347,34 @@ func fnmatchCase(name, pattern string) bool {
 		rest = rest[idx+len(part):]
 	}
 	return true
+}
+
+// PlanTypesForModel ports ModelRegistry.plan_types_for_model.
+func (m *ModelRegistry) PlanTypesForModel(slug string) map[string]struct{} {
+	normalized := strings.ToLower(strings.TrimSpace(slug))
+	if normalized == "" {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.snapshot != nil {
+		if plans, ok := m.snapshot.ModelPlans[slug]; ok {
+			return plans
+		}
+		if plans, ok := m.snapshot.ModelPlans[normalized]; ok {
+			return plans
+		}
+		return map[string]struct{}{}
+	}
+	if model, ok := m.bootstrapModels[slug]; ok {
+		return model.AvailableInPlans
+	}
+	if model, ok := m.bootstrapModels[normalized]; ok {
+		return model.AvailableInPlans
+	}
+	return nil
 }
 
 // IsPublicModel ports is_public_model.

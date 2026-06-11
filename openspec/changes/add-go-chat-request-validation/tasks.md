@@ -1,0 +1,6 @@
+- [x] 1. Add Go Chat Completions request-validation requirements.
+- [x] 2. Port model/messages/input presence checks.
+- [x] 3. Port role and content-part validation for chat messages.
+- [x] 4. Wire validation before streaming and non-streaming upstream paths.
+- [x] 5. Add focused tests for invalid roles, non-text system content, input_audio, file_id, and valid Responses-shaped payloads.
+- [x] 6. Validate focused proxy tests, Go build/tests, and strict OpenSpec.

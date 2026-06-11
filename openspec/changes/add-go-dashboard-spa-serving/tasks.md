@@ -1,0 +1,4 @@
+- [x] 1. Add OpenSpec requirement for optional Go dashboard SPA serving.
+- [x] 2. Add dashboard dist directory configuration.
+- [x] 3. Serve static files and SPA fallback without masking API/proxy 404s.
+- [x] 4. Add focused router tests and validate.

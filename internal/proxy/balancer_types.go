@@ -131,3 +131,28 @@ const (
 	DefaultRelativeAvailabilityPower = 2.0
 	DefaultRelativeAvailabilityTopK  = 5
 )
+
+// AccountLeaseKind mirrors app.modules.proxy.load_balancer.AccountLeaseKind.
+type AccountLeaseKind string
+
+const (
+	AccountLeaseKindResponseCreate AccountLeaseKind = "response_create"
+	AccountLeaseKindStream         AccountLeaseKind = "stream"
+)
+
+// AccountLease mirrors app.modules.proxy.load_balancer.AccountLease.
+type AccountLease struct {
+	LeaseID          string
+	AccountID        string
+	Kind             AccountLeaseKind
+	AcquiredAt       float64
+	EstimatedTokens  float64
+}
+
+// AccountSelection mirrors app.modules.proxy.load_balancer.AccountSelection.
+type AccountSelection struct {
+	Account      *ProxyAccount
+	ErrorMessage string
+	ErrorCode    string
+	Lease        *AccountLease
+}

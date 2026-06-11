@@ -1,0 +1,5 @@
+- [x] 1. Add Go bootstrap auth requirements.
+- [x] 2. Add config, repository, and service helpers for manual/shared bootstrap tokens.
+- [x] 3. Wire startup generation/logging, session flags, setup validation, and post-remove regeneration.
+- [x] 4. Add focused Go tests for session flags, remote validation, local bypass, startup reuse, and remove regeneration.
+- [x] 5. Validate focused auth tests, Go build/tests, and strict OpenSpec.

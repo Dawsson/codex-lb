@@ -242,3 +242,125 @@ func (r Repository) DeleteAdditionalForAccount(ctx context.Context, accountID st
 	}
 	return nil
 }
+
+func (r Repository) DeleteAdditionalForAccountAndQuotaKey(ctx context.Context, accountID, quotaKey string) error {
+	if _, err := r.store.DB().ExecContext(ctx, `
+		DELETE FROM additional_usage_history WHERE account_id = ? AND quota_key = ?
+	`, accountID, quotaKey); err != nil {
+		return fmt.Errorf("delete additional usage history quota key: %w", err)
+	}
+	return nil
+}
+
+func (r Repository) DeleteAdditionalForAccountQuotaKeyWindow(ctx context.Context, accountID, quotaKey, window string) error {
+	if _, err := r.store.DB().ExecContext(ctx, `
+		DELETE FROM additional_usage_history WHERE account_id = ? AND quota_key = ? AND window = ?
+	`, accountID, quotaKey, window); err != nil {
+		return fmt.Errorf("delete additional usage history quota key window: %w", err)
+	}
+	return nil
+}
+
+func (r Repository) ListAdditionalQuotaKeys(ctx context.Context, accountIDs []string) ([]string, error) {
+	conditions := []string{"quota_key IS NOT NULL", "quota_key != ''"}
+	args := []any{}
+	if len(accountIDs) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(accountIDs)), ",")
+		conditions = append(conditions, "account_id IN ("+placeholders+")")
+		for _, accountID := range accountIDs {
+			args = append(args, accountID)
+		}
+	}
+	rows, err := r.store.DB().QueryContext(ctx, `
+		SELECT DISTINCT quota_key
+		  FROM additional_usage_history
+		 WHERE `+strings.Join(conditions, " AND ")+`
+		 ORDER BY quota_key
+	`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list additional quota keys: %w", err)
+	}
+	defer rows.Close()
+	keys := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("scan additional quota key: %w", err)
+		}
+		keys = append(keys, key)
+	}
+	return httputil.EmptySlice(keys), rows.Err()
+}
+
+func (r Repository) LatestAdditionalRecordedAtForAccount(ctx context.Context, accountID string) (sql.NullString, error) {
+	var recordedAt sql.NullString
+	err := r.store.DB().QueryRowContext(ctx, `
+		SELECT max(recorded_at)
+		  FROM additional_usage_history
+		 WHERE account_id = ?
+	`, accountID).Scan(&recordedAt)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("latest additional recorded_at: %w", err)
+	}
+	return recordedAt, nil
+}
+
+// LatestAdditionalByQuotaKey returns the latest additional_usage_history row per account
+// for the given quota key and window.
+func (r Repository) LatestAdditionalByQuotaKey(
+	ctx context.Context,
+	quotaKey string,
+	window string,
+	accountIDs []string,
+	since *time.Time,
+) (map[string]AdditionalEntry, error) {
+	if quotaKey == "" || window == "" {
+		return nil, fmt.Errorf("quota key and window are required")
+	}
+	if len(accountIDs) == 0 {
+		return map[string]AdditionalEntry{}, nil
+	}
+
+	placeholders := make([]string, len(accountIDs))
+	args := make([]any, 0, len(accountIDs)+3)
+	args = append(args, quotaKey, window)
+	for i, accountID := range accountIDs {
+		placeholders[i] = "?"
+		args = append(args, accountID)
+	}
+	query := fmt.Sprintf(`
+		SELECT id, account_id, quota_key, limit_name, metered_feature, window,
+		       used_percent, reset_at, window_minutes, recorded_at
+		  FROM additional_usage_history
+		 WHERE quota_key = ?
+		   AND window = ?
+		   AND account_id IN (%s)
+	`, strings.Join(placeholders, ","))
+	if since != nil {
+		query += ` AND recorded_at >= ?`
+		args = append(args, since.UTC().Format("2006-01-02 15:04:05"))
+	}
+	query += ` ORDER BY account_id, recorded_at DESC, id DESC`
+
+	rows, err := r.store.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query additional usage history: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]AdditionalEntry, len(accountIDs))
+	for rows.Next() {
+		var entry AdditionalEntry
+		if err := rows.Scan(
+			&entry.ID, &entry.AccountID, &entry.QuotaKey, &entry.LimitName, &entry.MeteredFeature,
+			&entry.Window, &entry.UsedPercent, &entry.ResetAt, &entry.WindowMinutes, &entry.RecordedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan additional usage history: %w", err)
+		}
+		if _, exists := out[entry.AccountID]; exists {
+			continue
+		}
+		out[entry.AccountID] = entry
+	}
+	return out, rows.Err()
+}

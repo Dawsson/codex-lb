@@ -36,6 +36,35 @@ type IDTokenClaims struct {
 	Auth             *IDTokenAuthClaims `json:"-"`
 }
 
+type GuardianClaims struct {
+	Email            string
+	ChatGPTAccountID string
+	PlanType         string
+	WorkspaceID      string
+	WorkspaceLabel   string
+	SeatType         string
+}
+
+func ExtractIDTokenClaimsForGuardian(idToken string) GuardianClaims {
+	claims := extractIDTokenClaims(idToken)
+	out := GuardianClaims{
+		Email:            claims.Email,
+		ChatGPTAccountID: claims.ChatGPTAccountID,
+		PlanType:         coerceAccountPlanType(claims.ChatGPTPlanType, defaultPlan),
+		WorkspaceID:      cleanAccountIdentityPart(claims.WorkspaceID),
+		WorkspaceLabel:   cleanAccountIdentityPart(claims.WorkspaceLabel),
+		SeatType:         normalizeSeatType(claims.SeatType),
+	}
+	if claims.Auth != nil {
+		out.ChatGPTAccountID = firstNonEmpty(claims.Auth.ChatGPTAccountID, out.ChatGPTAccountID)
+		out.PlanType = coerceAccountPlanType(firstNonEmpty(claims.Auth.ChatGPTPlanType, out.PlanType), defaultPlan)
+		out.WorkspaceID = cleanAccountIdentityPart(firstNonEmpty(claims.Auth.WorkspaceID, out.WorkspaceID))
+		out.WorkspaceLabel = cleanAccountIdentityPart(firstNonEmpty(claims.Auth.WorkspaceLabel, out.WorkspaceLabel))
+		out.SeatType = normalizeSeatType(firstNonEmpty(claims.Auth.SeatType, out.SeatType))
+	}
+	return out
+}
+
 // rawIDTokenClaims maps the raw JSON fields including the alias-choice keys
 // used by the Python pydantic models.
 type rawIDTokenClaims struct {

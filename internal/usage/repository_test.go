@@ -111,3 +111,47 @@ func TestAdditionalUsageRepository(t *testing.T) {
 		t.Fatalf("expected 0 rows after delete, got %d", count)
 	}
 }
+
+func TestAdditionalUsageRepositoryQuotaKeyHelpers(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	repo := usage.NewRepository(store)
+
+	for _, entry := range []usage.AdditionalEntry{
+		{AccountID: "acct-1", QuotaKey: "codex_spark", LimitName: "codex_other", MeteredFeature: "codex_bengalfox", Window: "primary", UsedPercent: 10, RecordedAt: "2026-06-01 00:00:00"},
+		{AccountID: "acct-1", QuotaKey: "codex_spark", LimitName: "codex_other", MeteredFeature: "codex_bengalfox", Window: "secondary", UsedPercent: 20, RecordedAt: "2026-06-01 00:01:00"},
+		{AccountID: "acct-1", QuotaKey: "stale_quota", LimitName: "stale", MeteredFeature: "stale", Window: "primary", UsedPercent: 30, RecordedAt: "2026-06-01 00:02:00"},
+	} {
+		if _, err := repo.AddAdditionalEntry(ctx, entry); err != nil {
+			t.Fatalf("add additional entry: %v", err)
+		}
+	}
+
+	keys, err := repo.ListAdditionalQuotaKeys(ctx, []string{"acct-1"})
+	if err != nil {
+		t.Fatalf("list additional quota keys: %v", err)
+	}
+	if len(keys) != 2 || keys[0] != "codex_spark" || keys[1] != "stale_quota" {
+		t.Fatalf("unexpected keys: %#v", keys)
+	}
+	latest, err := repo.LatestAdditionalRecordedAtForAccount(ctx, "acct-1")
+	if err != nil {
+		t.Fatalf("latest additional recorded at: %v", err)
+	}
+	if !latest.Valid || latest.String != "2026-06-01 00:02:00" {
+		t.Fatalf("unexpected latest recorded at: %#v", latest)
+	}
+	if err := repo.DeleteAdditionalForAccountQuotaKeyWindow(ctx, "acct-1", "codex_spark", "secondary"); err != nil {
+		t.Fatalf("delete window: %v", err)
+	}
+	if err := repo.DeleteAdditionalForAccountAndQuotaKey(ctx, "acct-1", "stale_quota"); err != nil {
+		t.Fatalf("delete quota key: %v", err)
+	}
+	var count int
+	if err := store.DB().QueryRow(`SELECT count(*) FROM additional_usage_history WHERE account_id = 'acct-1'`).Scan(&count); err != nil {
+		t.Fatalf("count rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one remaining row, got %d", count)
+	}
+}

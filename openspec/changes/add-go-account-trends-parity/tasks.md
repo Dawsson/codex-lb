@@ -1,0 +1,4 @@
+- [x] 1. Add account trends parity requirements.
+- [x] 2. Port weekly-primary trend normalization into Go.
+- [x] 3. Add focused tests for secondary scheduled and weekly-primary normalization.
+- [x] 4. Validate focused account tests, Go build/tests, and strict OpenSpec.

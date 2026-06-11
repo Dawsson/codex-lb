@@ -9,13 +9,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const sessionAuthenticatedKey = "authenticated"
+const (
+	sessionAuthenticatedKey    = "authenticated"
+	sessionPasswordVerifiedKey = "password_verified"
+	sessionTOTPVerifiedKey     = "totp_verified"
+)
 
 type Handler struct {
 	repo         Repository
 	sessions     *scs.SessionManager
 	authDisabled bool
 	encryptor    Encryptor
+	bootstrap    BootstrapService
 }
 
 type Encryptor interface {
@@ -43,8 +48,8 @@ type statusResponse struct {
 	Status string `json:"status"`
 }
 
-func NewHandler(repo Repository, sessions *scs.SessionManager, authDisabled bool, encryptor Encryptor) Handler {
-	return Handler{repo: repo, sessions: sessions, authDisabled: authDisabled, encryptor: encryptor}
+func NewHandler(repo Repository, sessions *scs.SessionManager, authDisabled bool, encryptor Encryptor, bootstrap BootstrapService) Handler {
+	return Handler{repo: repo, sessions: sessions, authDisabled: authDisabled, encryptor: encryptor, bootstrap: bootstrap}
 }
 
 func (h Handler) Session(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +84,7 @@ func (h Handler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "server_error", "Failed to renew session")
 		return
 	}
-	h.sessions.Put(r.Context(), sessionAuthenticatedKey, true)
+	h.markPasswordVerified(r)
 	response, err := h.sessionResponse(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "server_error", err.Error())
@@ -103,7 +108,11 @@ func (h Handler) RequireSession(next http.Handler) http.Handler {
 			writeError(w, http.StatusInternalServerError, "server_error", err.Error())
 			return
 		}
-		if !h.authDisabled && settings.PasswordHash.Valid && !h.sessions.GetBool(r.Context(), sessionAuthenticatedKey) {
+		if !h.authDisabled && settings.PasswordHash.Valid && !h.isFullyAuthenticated(r, settings) {
+			if settings.TOTPRequiredOnLogin && settings.TOTPConfigured && h.isPasswordVerified(r) {
+				writeError(w, http.StatusUnauthorized, "totp_required", "TOTP verification is required for dashboard access")
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "authentication_required", "Authentication is required")
 			return
 		}
@@ -117,22 +126,68 @@ func (h Handler) sessionResponse(r *http.Request) (SessionResponse, error) {
 		return SessionResponse{}, err
 	}
 	passwordRequired := settings.PasswordHash.Valid
-	authenticated := h.authDisabled || !passwordRequired || h.sessions.GetBool(r.Context(), sessionAuthenticatedKey)
-	totpRequired := false
-	if settings.TOTPRequiredOnLogin && !authenticated {
-		return SessionResponse{}, errors.New("totp cannot be required before password authentication")
+	passwordVerified := h.isPasswordVerified(r)
+	totpRequired := passwordRequired && settings.TOTPRequiredOnLogin && settings.TOTPConfigured
+	totpPending := totpRequired && passwordVerified && !h.isTOTPVerified(r)
+	authenticated := h.authDisabled || !passwordRequired || h.isFullyAuthenticated(r, settings)
+	bootstrapRequired := false
+	bootstrapTokenConfigured := false
+	if !h.authDisabled && !passwordRequired && !isLocalRequest(r) {
+		bootstrapRequired = true
+		authenticated = false
+		configured, err := h.bootstrap.HasActiveToken(r.Context())
+		if err != nil {
+			return SessionResponse{}, err
+		}
+		bootstrapTokenConfigured = configured
+	}
+	if settings.TOTPRequiredOnLogin && !settings.TOTPConfigured && !authenticated && passwordVerified {
+		return SessionResponse{}, errors.New("totp cannot be required before TOTP is configured")
 	}
 	return SessionResponse{
 		Authenticated:             authenticated,
 		PasswordRequired:          passwordRequired,
-		TOTPRequiredOnLogin:       totpRequired,
+		TOTPRequiredOnLogin:       totpPending,
 		TOTPConfigured:            settings.TOTPConfigured,
-		BootstrapRequired:         false,
-		BootstrapTokenConfigured:  false,
+		BootstrapRequired:         bootstrapRequired,
+		BootstrapTokenConfigured:  bootstrapTokenConfigured,
 		AuthMode:                  authMode(h.authDisabled),
 		PasswordManagementEnabled: !h.authDisabled,
 		PasswordSessionActive:     authenticated && passwordRequired && !h.authDisabled,
 	}, nil
+}
+
+func (h Handler) markPasswordVerified(r *http.Request) {
+	h.sessions.Put(r.Context(), sessionAuthenticatedKey, true)
+	h.sessions.Put(r.Context(), sessionPasswordVerifiedKey, true)
+	h.sessions.Put(r.Context(), sessionTOTPVerifiedKey, false)
+}
+
+func (h Handler) markTOTPVerified(r *http.Request) {
+	h.sessions.Put(r.Context(), sessionAuthenticatedKey, true)
+	h.sessions.Put(r.Context(), sessionPasswordVerifiedKey, true)
+	h.sessions.Put(r.Context(), sessionTOTPVerifiedKey, true)
+}
+
+func (h Handler) isPasswordVerified(r *http.Request) bool {
+	return h.sessions.GetBool(r.Context(), sessionAuthenticatedKey) || h.sessions.GetBool(r.Context(), sessionPasswordVerifiedKey)
+}
+
+func (h Handler) isTOTPVerified(r *http.Request) bool {
+	return h.sessions.GetBool(r.Context(), sessionTOTPVerifiedKey)
+}
+
+func (h Handler) isFullyAuthenticated(r *http.Request, settings Settings) bool {
+	if !settings.PasswordHash.Valid {
+		return true
+	}
+	if !h.isPasswordVerified(r) {
+		return false
+	}
+	if settings.TOTPRequiredOnLogin && settings.TOTPConfigured {
+		return h.isTOTPVerified(r)
+	}
+	return true
 }
 
 func authMode(disabled bool) string {

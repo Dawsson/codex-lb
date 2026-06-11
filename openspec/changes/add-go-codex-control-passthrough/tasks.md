@@ -1,0 +1,5 @@
+- [x] 1. Add Go Codex control passthrough requirements.
+- [x] 2. Add raw upstream forwarding support with Python-compatible path/header handling.
+- [x] 3. Wire thread goal, telemetry, memory, realtime, safety, opportunistic admission, and v1 alias routes.
+- [x] 4. Add focused handler/upstream tests.
+- [x] 5. Validate focused proxy/httpapi tests, Go build/tests, and strict OpenSpec.

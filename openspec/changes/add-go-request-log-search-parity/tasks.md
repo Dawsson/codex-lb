@@ -1,0 +1,4 @@
+- [x] 1. Add request-log search parity requirement.
+- [x] 2. Extend Go request-log search predicates to Python-covered fields.
+- [x] 3. Add focused repository coverage for new search fields.
+- [x] 4. Validate focused Go tests and strict OpenSpec.

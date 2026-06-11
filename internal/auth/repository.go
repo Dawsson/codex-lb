@@ -13,9 +13,11 @@ type Repository struct {
 }
 
 type Settings struct {
-	PasswordHash        sql.NullString
-	TOTPRequiredOnLogin bool
-	TOTPConfigured      bool
+	PasswordHash            sql.NullString
+	BootstrapTokenEncrypted []byte
+	BootstrapTokenHash      []byte
+	TOTPRequiredOnLogin     bool
+	TOTPConfigured          bool
 }
 
 func NewRepository(store *db.Store) Repository {
@@ -26,11 +28,12 @@ func (r Repository) Settings(ctx context.Context) (Settings, error) {
 	var settings Settings
 	var totpSecret []byte
 	err := r.store.DB().QueryRowContext(ctx, `
-		SELECT password_hash, totp_required_on_login, totp_secret_encrypted
+		SELECT password_hash, bootstrap_token_encrypted, bootstrap_token_hash,
+		       totp_required_on_login, totp_secret_encrypted
 		  FROM dashboard_settings
 		 ORDER BY id
 		 LIMIT 1
-	`).Scan(&settings.PasswordHash, &settings.TOTPRequiredOnLogin, &totpSecret)
+	`).Scan(&settings.PasswordHash, &settings.BootstrapTokenEncrypted, &settings.BootstrapTokenHash, &settings.TOTPRequiredOnLogin, &totpSecret)
 	if err == sql.ErrNoRows {
 		return Settings{}, nil
 	}
@@ -39,6 +42,40 @@ func (r Repository) Settings(ctx context.Context) (Settings, error) {
 	}
 	settings.TOTPConfigured = len(totpSecret) > 0
 	return settings, nil
+}
+
+func (r Repository) StoreBootstrapTokenIfAbsent(ctx context.Context, tokenEncrypted []byte, tokenHash []byte) (bool, error) {
+	result, err := r.store.DB().ExecContext(ctx, `
+		UPDATE dashboard_settings
+		   SET bootstrap_token_encrypted = ?, bootstrap_token_hash = ?
+		 WHERE password_hash IS NULL
+		   AND bootstrap_token_hash IS NULL
+	`, tokenEncrypted, tokenHash)
+	if err != nil {
+		return false, fmt.Errorf("store bootstrap token: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
+func (r Repository) ClearBootstrapToken(ctx context.Context) (bool, error) {
+	result, err := r.store.DB().ExecContext(ctx, `
+		UPDATE dashboard_settings
+		   SET bootstrap_token_encrypted = NULL,
+		       bootstrap_token_hash = NULL
+		 WHERE bootstrap_token_hash IS NOT NULL
+	`)
+	if err != nil {
+		return false, fmt.Errorf("clear bootstrap token: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
 
 func (r Repository) TrySetPasswordHash(ctx context.Context, passwordHash string) (bool, error) {
